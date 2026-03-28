@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-import json, asyncio, logging, os, math, requests, sqlite3
+import json, asyncio, logging, os, math, subprocess, requests, sqlite3
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(title="Polymarket Niche Bot", version="1.0.0")
@@ -87,6 +87,23 @@ def init_db():
 
 init_db()
 
+# ── HTTP helpers (try curl first, fall back to requests) ─────────────────────
+def curl_get(url, params=None):
+    """Use curl subprocess to bypass proxy issues; fall back to requests."""
+    cmd = ["curl", "-s", "--max-time", "15"]
+    if params:
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        url = f"{url}?{query}"
+    cmd.append(url)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0 and result.stdout.strip():
+        return json.loads(result.stdout)
+    # Fall back to requests
+    log.info(f"curl failed (rc={result.returncode}), trying requests...")
+    r = requests.get(url, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 CITY_COORDS = {
     "tel aviv":  (32.0004, 34.8706),   # LLBG Ben Gurion
@@ -121,15 +138,14 @@ def get_forecast(city: str, date_str: str):
     if not coords: return None
     lat, lon = coords
     try:
-        r = requests.get("https://api.open-meteo.com/v1/forecast", params={
+        data = curl_get("https://api.open-meteo.com/v1/forecast", {
             "latitude": lat, "longitude": lon,
             "daily": "temperature_2m_max,temperature_2m_min",
             "temperature_unit": "celsius", "timezone": "auto",
             "start_date": date_str, "end_date": date_str,
             "models": "best_match"
-        }, timeout=15)
-        r.raise_for_status()
-        d = r.json().get("daily", {})
+        })
+        d = data.get("daily", {})
         highs = d.get("temperature_2m_max", [None])
         return {"high": round(highs[0]) if highs[0] else None,
                 "low": round(d.get("temperature_2m_min", [None])[0] or 0),
@@ -174,10 +190,9 @@ async def run_scan():
 
     try:
         # 1. Fetch markets
-        params = {"tag": "weather", "active": "true", "closed": "false", "limit": 200}
-        r = requests.get(f"{GAMMA_API}/markets", params=params, timeout=15)
-        r.raise_for_status()
-        markets = [m for m in r.json()
+        params = {"tag": "weather", "active": "true", "closed": "false", "limit": "200"}
+        raw = curl_get(f"{GAMMA_API}/markets", params)
+        markets = [m for m in raw
                    if "highest temperature" in m.get("question", "").lower()
                    and float(m.get("volume", 0)) < 50_000
                    and m.get("active", False)]
@@ -197,10 +212,9 @@ async def run_scan():
                 outcome = tok.get("outcome", "")
                 if not tid: continue
                 try:
-                    pr = requests.get(f"{CLOB_API}/price",
-                                      params={"token_id": tid, "side": "BUY"}, timeout=8)
-                    if pr.status_code == 200:
-                        prices[outcome] = float(pr.json().get("price", 0))
+                    data = curl_get(f"{CLOB_API}/price",
+                                    {"token_id": tid, "side": "BUY"})
+                    prices[outcome] = float(data.get("price", 0))
                 except: pass
 
             if not prices: continue
