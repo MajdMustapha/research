@@ -7,7 +7,8 @@ Start with:  uvicorn backend.main:app --reload --port 8000
 
 from fastapi import FastAPI, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from datetime import datetime, timezone
 from pathlib import Path
@@ -712,3 +713,10 @@ def backtest_history(limit: int = 20):
 def ws_price_snapshot():
     """Return current WebSocket price cache."""
     return ws_prices
+
+# ── Serve dashboard ──────────────────────────────────────────────────────────
+DASHBOARD_DIR = BASE.parent / "dashboard"
+
+@app.get("/")
+def serve_dashboard():
+    return FileResponse(DASHBOARD_DIR / "index.html")
