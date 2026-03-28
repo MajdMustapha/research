@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+requests
+python-dotenv
+py-clob-client
+web3==6.14.0

@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>POLY//WATCH — Niche Bot Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne+Mono&family=Syne:wght@400;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #09090f;
+    --surface:   #0f0f1a;
+    --border:    #1e1e30;
+    --accent:    #00ff88;
+    --accent2:   #7b61ff;
+    --warn:      #ff6b35;
+    --text:      #e8e8f0;
+    --muted:     #6b6b85;
+    --red:       #ff3b5c;
+    --green:     #00ff88;
+    --mono:      'Syne Mono', monospace;
+    --sans:      'Syne', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,255,136,0.015) 2px, rgba(0,255,136,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* Header */
+  .hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .hdr-logo {
+    font-family: var(--mono);
+    font-size: 18px;
+    letter-spacing: 4px;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(0,255,136,0.5);
+  }
+  .hdr-logo span { color: var(--muted); }
+  .hdr-right { display: flex; align-items: center; gap: 16px; }
+  .pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 20px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 1px;
+    border: 1px solid;
+  }
+  .pill.live   { border-color: var(--red);   color: var(--red);   background: rgba(255,59,92,.1); }
+  .pill.dry    { border-color: var(--accent2); color: var(--accent2); background: rgba(123,97,255,.1); }
+  .pill.scan   { border-color: var(--accent); color: var(--accent); background: rgba(0,255,136,.1); animation: pulse 1s infinite; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 57px); }
+
+  /* Sidebar */
+  .sidebar {
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    background: var(--surface);
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 20px; cursor: pointer;
+    color: var(--muted); font-size: 13px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase;
+    border-left: 2px solid transparent;
+    transition: all .15s;
+  }
+  .nav-item:hover { color: var(--text); background: rgba(255,255,255,.03); }
+  .nav-item.active { color: var(--accent); border-left-color: var(--accent);
+    background: rgba(0,255,136,.05); }
+  .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+  .sidebar-sep { height: 1px; background: var(--border); margin: 12px 20px; }
+  .sidebar-label {
+    padding: 4px 20px 8px;
+    font-family: var(--mono); font-size: 9px;
+    letter-spacing: 2px; color: var(--muted); text-transform: uppercase;
+  }
+
+  /* Main content */
+  .main { padding: 24px; overflow-y: auto; }
+
+  /* Section title */
+  .section-title {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 3px; color: var(--muted);
+    text-transform: uppercase; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-title::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* Stat cards */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 28px; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px;
+    position: relative; overflow: hidden;
+  }
+  .stat-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  }
+  .stat-card.green::before { background: var(--green); }
+  .stat-card.purple::before { background: var(--accent2); }
+  .stat-card.orange::before { background: var(--warn); }
+  .stat-card.red::before { background: var(--red); }
+  .stat-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+  .stat-val { font-family: var(--mono); font-size: 28px; font-weight: 700;
+    line-height: 1; }
+  .stat-val.green  { color: var(--green); }
+  .stat-val.purple { color: var(--accent2); }
+  .stat-val.orange { color: var(--warn); }
+  .stat-val.red    { color: var(--red); }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Tables */
+  .table-wrap {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; margin-bottom: 24px;
+  }
+  .table-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--muted);
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    padding: 8px 12px; text-align: left;
+    font-family: var(--mono); font-size: 9px; letter-spacing: 2px;
+    color: var(--muted); text-transform: uppercase;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  td {
+    padding: 10px 12px; border-bottom: 1px solid rgba(30,30,48,.8);
+    font-size: 12px; vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .mono { font-family: var(--mono); font-size: 11px; }
+
+  /* Badges */
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 4px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 1px;
+  }
+  .badge.yes   { background: rgba(0,255,136,.12); color: var(--green); border: 1px solid rgba(0,255,136,.2); }
+  .badge.no    { background: rgba(255,59,92,.12); color: var(--red);   border: 1px solid rgba(255,59,92,.2); }
+  .badge.dry   { background: rgba(123,97,255,.12); color: var(--accent2); border: 1px solid rgba(123,97,255,.2); }
+  .badge.live  { background: rgba(255,107,53,.12); color: var(--warn); border: 1px solid rgba(255,107,53,.2); }
+  .badge.filled { background: rgba(0,255,136,.2); color: var(--green); border: 1px solid var(--green); }
+  .badge.error { background: rgba(255,59,92,.2); color: var(--red); border: 1px solid var(--red); }
+
+  /* Edge bar */
+  .edge-bar { display: flex; align-items: center; gap: 8px; }
+  .edge-track {
+    flex: 1; height: 4px; background: rgba(255,255,255,.06);
+    border-radius: 2px; overflow: hidden;
+  }
+  .edge-fill { height: 100%; border-radius: 2px; background: var(--accent); }
+  .edge-val { font-family: var(--mono); font-size: 11px; color: var(--accent); min-width: 36px; }
+
+  /* Btn */
+  .btn {
+    padding: 8px 16px; border-radius: 6px; border: none;
+    cursor: pointer; font-family: var(--mono); font-size: 11px; letter-spacing: 1px;
+    text-transform: uppercase; transition: all .15s;
+  }
+  .btn.primary {
+    background: var(--accent); color: #000; font-weight: 700;
+    box-shadow: 0 0 20px rgba(0,255,136,.3);
+  }
+  .btn.primary:hover { box-shadow: 0 0 30px rgba(0,255,136,.5); }
+  .btn.primary:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.ghost {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn.ghost:hover { color: var(--text); border-color: var(--muted); }
+
+  /* Log panel */
+  .log-panel {
+    background: #06060e; border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px; font-family: var(--mono); font-size: 11px;
+    line-height: 1.7; color: var(--muted); max-height: 300px; overflow-y: auto;
+  }
+  .log-line.info   { color: var(--muted); }
+  .log-line.signal { color: var(--accent); }
+  .log-line.trade  { color: var(--warn); }
+  .log-line.error  { color: var(--red); }
+
+  /* Next scan timer */
+  .next-scan {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+  .next-scan span { color: var(--accent2); }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+  }
+
+  /* Empty state */
+  .empty {
+    padding: 40px; text-align: center;
+    color: var(--muted); font-family: var(--mono); font-size: 12px;
+    letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+const API = 'http://localhost:8000/api';
+
+function useInterval(fn, ms) {
+  const ref = useRef(fn);
+  useEffect(() => { ref.current = fn; }, [fn]);
+  useEffect(() => {
+    const id = setInterval(() => ref.current(), ms);
+    return () => clearInterval(id);
+  }, [ms]);
+}
+
+function fmt(v, dec=2) { return v == null ? '—' : Number(v).toFixed(dec); }
+function fmtTs(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+function fmtPnl(v) {
+  if (v == null) return <span style={{color:'var(--muted)'}}>pending</span>;
+  const c = v >= 0 ? 'var(--green)' : 'var(--red)';
+  return <span style={{color:c, fontFamily:'var(--mono)'}}>{v >= 0 ? '+' : ''}{fmt(v)}</span>;
+}
+
+// ── Nav ────────────────────────────────────────────────────────────────────────
+const NAV = [
+  { id:'overview', icon:'◉', label:'Overview' },
+  { id:'signals',  icon:'◈', label:'Signals' },
+  { id:'trades',   icon:'◆', label:'Trades' },
+  { id:'log',      icon:'▣', label:'Activity Log' },
+  { id:'config',   icon:'◧', label:'Config' },
+];
+
+// ── Stats bar ─────────────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, color='green' }) {
+  return (
+    <div className={`stat-card ${color}`}>
+      <div className="stat-label">{label}</div>
+      <div className={`stat-val ${color}`}>{value}</div>
+      {sub && <div className="stat-sub">{sub}</div>}
+    </div>
+  );
+}
+
+// ── Edge bar ──────────────────────────────────────────────────────────────────
+function EdgeBar({ pts }) {
+  const pct = Math.min(pts / 50 * 100, 100);
+  return (
+    <div className="edge-bar">
+      <div className="edge-track"><div className="edge-fill" style={{width:`${pct}%`}} /></div>
+      <div className="edge-val">{fmt(pts,1)}pt</div>
+    </div>
+  );
+}
+
+// ── Status pill ───────────────────────────────────────────────────────────────
+function StatusPill({ running, mode }) {
+  if (running) return <div className="pill scan"><div className="dot" />SCANNING</div>;
+  return <div className={`pill ${mode === 'LIVE' ? 'live' : 'dry'}`}>
+    <div className="dot" />{mode}
+  </div>;
+}
+
+// ── Overview tab ──────────────────────────────────────────────────────────────
+function Overview({ stats, status, onTrigger }) {
+  const [countdown, setCountdown] = useState('');
+  useEffect(() => {
+    if (!status?.next_scan) return;
+    const tick = () => {
+      const diff = Math.max(0, status.next_scan - Date.now()/1000);
+      const m = Math.floor(diff/60), s = Math.floor(diff%60);
+      setCountdown(`${m}m ${String(s).padStart(2,'0')}s`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [status?.next_scan]);
+
+  const pnlColor = stats?.total_pnl >= 0 ? 'green' : 'red';
+
+  return (
+    <div>
+      <p className="section-title">PERFORMANCE</p>
+      <div className="stats-grid">
+        <StatCard label="Total Trades"   value={stats?.total_trades ?? '…'} color="purple" sub={`${stats?.settled ?? 0} settled`} />
+        <StatCard label="Win Rate"       value={stats?.win_rate ? `${(stats.win_rate*100).toFixed(0)}%` : '—'} color="green" sub={`${stats?.wins ?? 0} wins`} />
+        <StatCard label="Total P&L"      value={stats?.total_pnl != null ? `$${fmt(stats.total_pnl)}` : '—'} color={pnlColor} sub="USDC" />
+        <StatCard label="Avg Edge"       value={stats?.avg_edge ? `${fmt(stats.avg_edge,1)}pt` : '—'} color="orange" sub="per trade" />
+        <StatCard label="Avg EV/10"      value={stats?.avg_ev != null ? `$${fmt(stats.avg_ev)}` : '—'} color="green" sub="expected per $10" />
+        <StatCard label="Scans Done"     value={status?.scan_count ?? 0} color="purple" sub="total cycles" />
+      </div>
+
+      <p className="section-title">BOT STATUS</p>
+      <div className="table-wrap" style={{marginBottom:24}}>
+        <div style={{padding:'16px 20px', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16}}>
+          <div>
+            <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6}}>MODE</div>
+            <div className={`badge ${status?.mode === 'LIVE' ? 'live' : 'dry'}`} style={{fontSize:12}}>
+              {status?.mode ?? '…'}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6}}>LAST SCAN</div>
+            <div className="mono">{fmtTs(status?.last_scan)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6}}>NEXT SCAN</div>
+            <div className="next-scan">in <span>{countdown || '…'}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <button
+        className="btn primary"
+        disabled={status?.running}
+        onClick={onTrigger}
+      >
+        {status?.running ? '⟳ Scanning…' : '▶ Trigger Scan Now'}
+      </button>
+    </div>
+  );
+}
+
+// ── Signals tab ───────────────────────────────────────────────────────────────
+function Signals({ signals }) {
+  return (
+    <div>
+      <p className="section-title">LIVE SIGNALS — last 100</p>
+      <div className="table-wrap">
+        {signals.length === 0 ? <div className="empty">NO SIGNALS YET — RUN A SCAN</div> : (
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th><th>City</th><th>Market</th><th>Outcome</th>
+                <th>Direction</th><th>Forecast</th><th>Mkt Price</th><th>Edge</th><th>EV/10</th>
+              </tr>
+            </thead>
+            <tbody>
+              {signals.map(s => (
+                <tr key={s.id}>
+                  <td className="mono">{fmtTs(s.ts)}</td>
+                  <td style={{color:'var(--accent2)',fontWeight:700}}>{s.city}</td>
+                  <td style={{maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11,color:'var(--muted)'}}>{s.market}</td>
+                  <td className="mono">{s.outcome}</td>
+                  <td><span className={`badge ${s.direction === 'YES' ? 'yes' : 'no'}`}>{s.direction}</span></td>
+                  <td className="mono" style={{color:'var(--warn)'}}>{s.forecast_c}°C</td>
+                  <td className="mono">${fmt(s.market_price)}</td>
+                  <td><EdgeBar pts={s.edge_pts} /></td>
+                  <td className="mono" style={{color:s.ev_per_10>=0?'var(--green)':'var(--red)'}}>
+                    {s.ev_per_10>=0?'+':''}{fmt(s.ev_per_10)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Trades tab ────────────────────────────────────────────────────────────────
+function Trades({ trades, onResolve }) {
+  const [resolveId, setResolveId] = useState(null);
+  const [pnlInput, setPnlInput] = useState('');
+
+  return (
+    <div>
+      <p className="section-title">TRADE LOG</p>
+      <div className="table-wrap">
+        {trades.length === 0 ? <div className="empty">NO TRADES YET</div> : (
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th><th>Time</th><th>Market</th><th>Outcome</th>
+                <th>Direction</th><th>Entry</th><th>Bet</th><th>Edge</th>
+                <th>Status</th><th>P&L</th><th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trades.map(t => (
+                <tr key={t.id}>
+                  <td className="mono" style={{color:'var(--muted)'}}>{t.id}</td>
+                  <td className="mono">{fmtTs(t.ts)}</td>
+                  <td style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11,color:'var(--muted)'}}>{t.market}</td>
+                  <td className="mono">{t.outcome}</td>
+                  <td><span className={`badge ${t.direction === 'YES' ? 'yes' : 'no'}`}>{t.direction}</span></td>
+                  <td className="mono">${fmt(t.market_price)}</td>
+                  <td className="mono">${fmt(t.bet_usdc)}</td>
+                  <td><EdgeBar pts={t.edge_pts} /></td>
+                  <td>
+                    <span className={`badge ${t.status === 'dry_run' ? 'dry' : t.status === 'filled' ? 'filled' : 'error'}`}>
+                      {t.status}
+                    </span>
+                  </td>
+                  <td>{fmtPnl(t.pnl)}</td>
+                  <td>
+                    {!t.resolved && (
+                      resolveId === t.id ? (
+                        <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                          <input
+                            type="number" step="0.01" placeholder="P&L"
+                            value={pnlInput}
+                            onChange={e=>setPnlInput(e.target.value)}
+                            style={{width:70,background:'#06060e',border:'1px solid var(--border)',
+                              color:'var(--text)',borderRadius:4,padding:'3px 6px',
+                              fontFamily:'var(--mono)',fontSize:11}}
+                          />
+                          <button className="btn primary" style={{padding:'3px 8px',fontSize:10}}
+                            onClick={()=>{ onResolve(t.id, parseFloat(pnlInput)); setResolveId(null); setPnlInput(''); }}>
+                            OK
+                          </button>
+                          <button className="btn ghost" style={{padding:'3px 8px',fontSize:10}}
+                            onClick={()=>setResolveId(null)}>✕</button>
+                        </div>
+                      ) : (
+                        <button className="btn ghost" style={{padding:'4px 10px',fontSize:10}}
+                          onClick={()=>setResolveId(t.id)}>
+                          Resolve
+                        </button>
+                      )
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Log tab ───────────────────────────────────────────────────────────────────
+function ActivityLog({ scans, signals }) {
+  const lines = [
+    ...scans.map(s => ({
+      ts: s.ts, type:'trade',
+      msg: `SCAN ─ ${s.candidates} candidates found, ${s.trades_made} traded [${s.mode.toUpperCase()}]`
+    })),
+    ...signals.map(s => ({
+      ts: s.ts, type:'signal',
+      msg: `SIGNAL ─ ${s.city} ${s.outcome} → ${s.direction}  edge=${s.edge_pts}pt  ev/10=$${s.ev_per_10}`
+    })),
+  ].sort((a,b) => new Date(b.ts) - new Date(a.ts)).slice(0, 80);
+
+  return (
+    <div>
+      <p className="section-title">ACTIVITY LOG</p>
+      <div className="log-panel">
+        {lines.length === 0 && <div className="log-line info">// No activity yet. Trigger a scan.</div>}
+        {lines.map((l,i) => (
+          <div key={i} className={`log-line ${l.type}`}>
+            <span style={{color:'var(--muted)',marginRight:12}}>{fmtTs(l.ts)}</span>
+            {l.msg}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Config tab ────────────────────────────────────────────────────────────────
+function Config({ config }) {
+  return (
+    <div>
+      <p className="section-title">CONFIGURATION</p>
+      <div className="table-wrap">
+        <div style={{padding:'20px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+          {[
+            { key:'Mode',          val: config?.dry_run ? 'DRY RUN (no real trades)' : '🔴 LIVE TRADING' },
+            { key:'Max Bet/Trade', val: `$${config?.max_bet} USDC` },
+            { key:'Min Edge',      val: `${config?.min_edge} points` },
+            { key:'Scan Interval', val: `Every ${config?.scan_interval_min} minutes` },
+          ].map(r => (
+            <div key={r.key}>
+              <div style={{fontSize:9,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6,textTransform:'uppercase'}}>{r.key}</div>
+              <div className="mono" style={{color:'var(--text)',fontSize:13}}>{r.val}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{padding:'0 20px 20px'}}>
+          <div style={{fontSize:9,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:8,textTransform:'uppercase'}}>Change config</div>
+          <div className="log-panel" style={{maxHeight:80}}>
+            <div className="log-line info">// Edit .env file in the polymarket-system/ directory</div>
+            <div className="log-line info">// Then restart the backend: uvicorn backend.main:app --reload</div>
+          </div>
+        </div>
+      </div>
+
+      <p className="section-title" style={{marginTop:24}}>CLAUDE CODE INTEGRATION</p>
+      <div className="log-panel">
+        <div className="log-line signal">// Run once to start autonomous loop:</div>
+        <div className="log-line info">  cd polymarket-system</div>
+        <div className="log-line info">  claude   # opens Claude Code</div>
+        <div className="log-line signal">// Then inside Claude Code, set up the /loop:</div>
+        <div className="log-line info">  /loop 1h run the polymarket niche scan and report results</div>
+        <div className="log-line signal">// Or use the dedicated subagent:</div>
+        <div className="log-line info">  claude --agent polymarket-trader</div>
+        <div className="log-line signal">// Dashboard stays at:</div>
+        <div className="log-line info">  http://localhost:8000/dashboard</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Root App ──────────────────────────────────────────────────────────────────
+function App() {
+  const [tab,     setTab]     = useState('overview');
+  const [status,  setStatus]  = useState(null);
+  const [stats,   setStats]   = useState(null);
+  const [trades,  setTrades]  = useState([]);
+  const [signals, setSignals] = useState([]);
+  const [scans,   setScans]   = useState([]);
+  const [config,  setConfig]  = useState(null);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const [st, sta, tr, si, sc, cf] = await Promise.all([
+        fetch(`${API}/status`).then(r=>r.json()),
+        fetch(`${API}/stats`).then(r=>r.json()),
+        fetch(`${API}/trades`).then(r=>r.json()),
+        fetch(`${API}/signals`).then(r=>r.json()),
+        fetch(`${API}/scans`).then(r=>r.json()),
+        fetch(`${API}/config`).then(r=>r.json()),
+      ]);
+      setStatus(st); setStats(sta); setTrades(tr);
+      setSignals(si); setScans(sc); setConfig(cf);
+    } catch(e) { /* backend not up yet */ }
+  }, []);
+
+  useEffect(() => { fetchAll(); }, []);
+  useInterval(fetchAll, 5000);  // refresh every 5s
+
+  const triggerScan = async () => {
+    await fetch(`${API}/scan/trigger`, { method:'POST' });
+    setTimeout(fetchAll, 500);
+  };
+
+  const resolveTrade = async (id, pnl) => {
+    await fetch(`${API}/trades/resolve`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ trade_id: id, pnl })
+    });
+    fetchAll();
+  };
+
+  return (
+    <>
+      {/* Header */}
+      <header className="hdr">
+        <div className="hdr-logo">POLY<span>//</span>WATCH</div>
+        <div className="hdr-right">
+          <StatusPill running={status?.running} mode={status?.mode ?? '…'} />
+          <span style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)'}}>
+            {new Date().toLocaleTimeString('en-GB')}
+          </span>
+        </div>
+      </header>
+
+      <div className="layout">
+        {/* Sidebar */}
+        <nav className="sidebar">
+          <div className="sidebar-label">Navigation</div>
+          {NAV.map(n => (
+            <div key={n.id} className={`nav-item ${tab===n.id?'active':''}`}
+                 onClick={()=>setTab(n.id)}>
+              <span className="nav-icon">{n.icon}</span>
+              {n.label}
+            </div>
+          ))}
+          <div className="sidebar-sep" />
+          <div className="sidebar-label">Quick Stats</div>
+          <div style={{padding:'0 16px'}}>
+            {[
+              ['Trades',  stats?.total_trades ?? '…'],
+              ['Win Rate', stats?.win_rate ? `${(stats.win_rate*100).toFixed(0)}%` : '—'],
+              ['P&L',     stats?.total_pnl != null ? `$${fmt(stats.total_pnl)}` : '—'],
+            ].map(([k,v])=>(
+              <div key={k} style={{display:'flex',justifyContent:'space-between',
+                padding:'6px 4px',fontSize:12,borderBottom:'1px solid var(--border)'}}>
+                <span style={{color:'var(--muted)',fontFamily:'var(--mono)',fontSize:10}}>{k}</span>
+                <span style={{fontFamily:'var(--mono)',color:'var(--text)'}}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </nav>
+
+        {/* Main */}
+        <main className="main">
+          {tab === 'overview' && <Overview stats={stats} status={status} onTrigger={triggerScan} />}
+          {tab === 'signals'  && <Signals signals={signals} />}
+          {tab === 'trades'   && <Trades trades={trades} onResolve={resolveTrade} />}
+          {tab === 'log'      && <ActivityLog scans={scans} signals={signals} />}
+          {tab === 'config'   && <Config config={config} />}
+        </main>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
