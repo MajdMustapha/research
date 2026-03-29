@@ -538,6 +538,34 @@ def is_signal_on_cooldown(market_id: str, cooldown_hours: int = 24) -> bool:
         conn.close()
 
 
+
+def get_today_realized_pnl() -> float:
+    """Return sum of realized P&L for today (UTC). Used by daily loss limit."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(pnl_usdc), 0) as total
+            FROM positions
+            WHERE status = 'closed'
+            AND date(closed_at) = date('now')"""
+        ).fetchone()
+        return float(row["total"])
+    finally:
+        conn.close()
+
+
+def is_tx_hash_seen(tx_hash: str) -> bool:
+    """Check if a transaction hash has already been recorded in wallet_activity."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM wallet_activity WHERE tx_hash = ?", (tx_hash,)
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
 def set_signal_cooldown(market_id: str) -> None:
     """Set a cooldown for a market."""
     with db_write() as conn:

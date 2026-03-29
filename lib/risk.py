@@ -10,7 +10,7 @@ from typing import Optional
 
 import yaml
 
-from lib.state import get_open_positions, get_bankroll
+from lib.state import get_open_positions, get_open_paper_trades, get_bankroll, get_today_realized_pnl
 from lib.logger import get_logger
 
 logger = get_logger(__name__)
@@ -39,18 +39,31 @@ def risk_check(
     bankroll = get_bankroll()
     open_positions = get_open_positions()
 
+    # Rule 0: Daily loss limit — halt all trading if breached
+    daily_loss_limit = bankroll * cfg.get("daily_loss_limit_pct", 0.10)
+    today_pnl = get_today_realized_pnl()
+    if today_pnl < 0 and abs(today_pnl) >= daily_loss_limit:
+        logger.warning(
+            f"Risk: daily loss limit breached — realized {today_pnl:.2f} "
+            f"(limit -{daily_loss_limit:.2f})"
+        )
+        return RiskResult(False, f"daily_loss_limit_breached (${today_pnl:.2f})")
+
     # Rule 1: Max position size (% of bankroll)
     max_size = bankroll * cfg["max_position_pct"]
     if requested_size > max_size:
         logger.info(f"Risk: size capped from {requested_size:.2f} to {max_size:.2f}")
         return RiskResult(True, "size_capped", capped_size=round(max_size, 2))
 
-    # Rule 2: Max open positions
-    if len(open_positions) >= cfg["max_open_positions"]:
-        return RiskResult(False, f"max_open_positions_reached ({cfg['max_open_positions']})")
+    # Rule 2: Max open positions (live + paper combined)
+    paper_trades = get_open_paper_trades()
+    total_open = len(open_positions) + len(paper_trades)
+    if total_open >= cfg["max_open_positions"]:
+        return RiskResult(False, f"max_open_positions_reached ({total_open}/{cfg['max_open_positions']})")
 
-    # Rule 3: No duplicate market exposure
+    # Rule 3: No duplicate market exposure (live + paper combined)
     existing_market_ids = [p["market_id"] for p in open_positions]
+    existing_market_ids += [p["market_id"] for p in paper_trades]
     if market_id in existing_market_ids:
         return RiskResult(False, "already_have_position_in_market")
 

@@ -14,14 +14,12 @@ from lib.state import (
     get_wallet_activity,
     is_signal_on_cooldown,
     set_signal_cooldown,
+    is_tx_hash_seen,
     log_event,
 )
 from lib.logger import get_logger
 
 logger = get_logger(__name__)
-
-# Track seen tx hashes to avoid duplicate inserts
-_seen_tx_hashes: set[str] = set()
 
 
 def _load_settings() -> dict:
@@ -78,20 +76,22 @@ def poll_wallet_trades() -> list[dict]:
 
                 for trade in trades:
                     tx_hash = trade.get("transactionHash") or trade.get("id") or ""
-                    if tx_hash in _seen_tx_hashes:
+                    if not tx_hash or is_tx_hash_seen(tx_hash):
                         continue
 
                     size_usdc = float(trade.get("size", 0))
                     if size_usdc < min_trade_size:
                         continue
 
-                    _seen_tx_hashes.add(tx_hash)
-
                     market_id = (
                         trade.get("market", {}).get("id")
                         or trade.get("conditionId")
                         or ""
                     )
+                    if not market_id:
+                        logger.warning(f"Skipping trade with empty market_id: tx={tx_hash[:16]}")
+                        continue
+
                     token_id = trade.get("tokenId") or trade.get("assetId") or ""
                     side = trade.get("side") or trade.get("outcomeIndex", "")
 

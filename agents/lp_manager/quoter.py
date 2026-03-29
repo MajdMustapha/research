@@ -127,9 +127,11 @@ def refresh_lp_orders(market_config: dict) -> None:
     except PolymarketCLIError as e:
         logger.warning(f"LP: Failed to cancel stale orders for {market_id}: {e}")
 
-    # 6. Post new two-sided orders
+    # 6. Post new two-sided orders (atomic: both succeed or neither persists)
+    bid_shares = quote_size / bid_price
+    ask_shares = quote_size / ask_price
+
     try:
-        bid_shares = quote_size / bid_price
         result_bid = create_limit_order(
             token_id=token_id,
             side="buy",
@@ -137,20 +139,11 @@ def refresh_lp_orders(market_config: dict) -> None:
             size=round(bid_shares, 2),
             post_only=True,
         )
-        save_lp_order({
-            "market_id": market_id,
-            "token_id": token_id,
-            "order_id": result_bid.get("orderID", "unknown"),
-            "side": "buy",
-            "price": bid_price,
-            "size": round(bid_shares, 2),
-        })
-        logger.info(f"LP bid posted: {market_id[:12]} @ {bid_price:.4f}")
     except PolymarketCLIError as e:
         logger.error(f"LP: Failed to post bid for {market_id}: {e}")
+        return
 
     try:
-        ask_shares = quote_size / ask_price
         result_ask = create_limit_order(
             token_id=token_id,
             side="sell",
@@ -158,17 +151,33 @@ def refresh_lp_orders(market_config: dict) -> None:
             size=round(ask_shares, 2),
             post_only=True,
         )
-        save_lp_order({
-            "market_id": market_id,
-            "token_id": token_id,
-            "order_id": result_ask.get("orderID", "unknown"),
-            "side": "sell",
-            "price": ask_price,
-            "size": round(ask_shares, 2),
-        })
-        logger.info(f"LP ask posted: {market_id[:12]} @ {ask_price:.4f}")
     except PolymarketCLIError as e:
-        logger.error(f"LP: Failed to post ask for {market_id}: {e}")
+        # Ask failed — cancel the bid to avoid lopsided quotes
+        logger.error(f"LP: Ask failed for {market_id}, cancelling orphaned bid: {e}")
+        try:
+            cancel_market_orders(condition_id)
+        except PolymarketCLIError as cancel_err:
+            logger.error(f"LP: Failed to cancel orphaned bid: {cancel_err}")
+        return
+
+    # Both sides succeeded — save to database
+    save_lp_order({
+        "market_id": market_id,
+        "token_id": token_id,
+        "order_id": result_bid.get("orderID", "unknown"),
+        "side": "buy",
+        "price": bid_price,
+        "size": round(bid_shares, 2),
+    })
+    save_lp_order({
+        "market_id": market_id,
+        "token_id": token_id,
+        "order_id": result_ask.get("orderID", "unknown"),
+        "side": "sell",
+        "price": ask_price,
+        "size": round(ask_shares, 2),
+    })
+    logger.info(f"LP orders posted: {market_id[:12]} bid={bid_price:.4f} ask={ask_price:.4f}")
 
 
 def refresh_all_lp_markets() -> None:

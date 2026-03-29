@@ -98,12 +98,13 @@ def check_price_anomalies() -> list[dict]:
 
         # Check for >5% move in 10 minutes
         ten_min_ago = now - 600
-        old_prices = [
-            p for t, p in _price_history[token_id] if t <= ten_min_ago + 30
+        old_entries = [
+            (t, p) for t, p in _price_history[token_id] if t <= ten_min_ago + 30
         ]
 
-        if old_prices:
-            oldest_price = old_prices[0]
+        if old_entries:
+            # Use the actual oldest entry (earliest timestamp)
+            oldest_price = min(old_entries, key=lambda x: x[0])[1]
             if oldest_price > 0:
                 move_pct = abs(current_price - oldest_price) / oldest_price
                 if move_pct > 0.05:

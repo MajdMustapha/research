@@ -21,12 +21,19 @@ logger = get_logger(__name__)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 OPERATOR_CHAT_ID = os.getenv("TELEGRAM_OPERATOR_CHAT_ID", "")
+_OPERATOR_CHAT_ID_INT = int(OPERATOR_CHAT_ID) if OPERATOR_CHAT_ID.isdigit() else None
+
+# Cached Telegram app — built once, reused across sends
+_cached_app = None
 
 
 def _get_app():
-    """Build and return Telegram Application."""
-    from telegram.ext import Application
-    return Application.builder().token(TELEGRAM_TOKEN).build()
+    """Return cached Telegram Application (builds once)."""
+    global _cached_app
+    if _cached_app is None:
+        from telegram.ext import Application
+        _cached_app = Application.builder().token(TELEGRAM_TOKEN).build()
+    return _cached_app
 
 
 # ─── Signal Alerts ────────────────────────────────────────────────────────────
@@ -85,7 +92,7 @@ async def handle_callback(update, context) -> None:
     query = update.callback_query
 
     # Validate operator
-    if str(query.from_user.id) != OPERATOR_CHAT_ID:
+    if _OPERATOR_CHAT_ID_INT is None or query.from_user.id != _OPERATOR_CHAT_ID_INT:
         await query.answer("Unauthorized")
         return
 
@@ -94,6 +101,19 @@ async def handle_callback(update, context) -> None:
 
     if data.startswith("approve_"):
         signal_id = int(data.split("_")[1])
+
+        # Check expiry at approval time — don't let stale signals through
+        signal = get_signal(signal_id)
+        if signal:
+            created = datetime.fromisoformat(signal["created_at"])
+            age = (datetime.now(timezone.utc) - created.replace(tzinfo=timezone.utc)).total_seconds()
+            if age > 1800:
+                update_signal_action(signal_id, "expired", datetime.now(timezone.utc))
+                await query.edit_message_text(
+                    f"Signal #{signal_id} EXPIRED — {int(age / 60)} min old"
+                )
+                return
+
         try:
             from agents.executor.orders import execute_approved_signal
             await execute_approved_signal(signal_id)
@@ -115,7 +135,7 @@ async def handle_callback(update, context) -> None:
 
 async def handle_status(update, context) -> None:
     """Show current positions, bankroll, LP orders."""
-    if str(update.effective_user.id) != OPERATOR_CHAT_ID:
+    if _OPERATOR_CHAT_ID_INT is None or update.effective_user.id != _OPERATOR_CHAT_ID_INT:
         return
 
     bankroll = get_bankroll()
@@ -146,7 +166,7 @@ async def handle_status(update, context) -> None:
 
 async def handle_cancel_all(update, context) -> None:
     """Emergency stop — cancel all orders."""
-    if str(update.effective_user.id) != OPERATOR_CHAT_ID:
+    if _OPERATOR_CHAT_ID_INT is None or update.effective_user.id != _OPERATOR_CHAT_ID_INT:
         return
 
     from lib.cli import cancel_all_orders

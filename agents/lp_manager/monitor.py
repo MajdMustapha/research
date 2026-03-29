@@ -70,8 +70,9 @@ async def monitor_order_book_with_reconnect(
                     if data.get("event_type") == "book":
                         new_mid = _calculate_mid(data)
                         if new_mid and last_mid and abs(new_mid - last_mid) > 0.01:
-                            await on_price_move_callback(
-                                token_id, last_mid, new_mid
+                            # Fire-and-forget: don't block WS reads on requote
+                            asyncio.create_task(
+                                on_price_move_callback(token_id, last_mid, new_mid)
                             )
                         if new_mid:
                             last_mid = new_mid
@@ -98,6 +99,8 @@ async def on_price_move(token_id: str, old_mid: float, new_mid: float) -> None:
     from agents.lp_manager.quoter import refresh_all_lp_markets
 
     try:
-        refresh_all_lp_markets()
+        # Run synchronous requote in thread pool to avoid blocking event loop
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, refresh_all_lp_markets)
     except Exception as e:
         logger.error(f"Failed to refresh LP orders after price move: {e}")

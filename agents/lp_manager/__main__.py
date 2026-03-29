@@ -10,6 +10,7 @@ import yaml
 
 from lib.state import init_db, log_event
 from lib.logger import get_logger
+from lib.health import run_startup_checks
 from agents.lp_manager.quoter import refresh_all_lp_markets
 from agents.lp_manager.monitor import monitor_order_book_with_reconnect, on_price_move
 from agents.lp_manager.rewards import record_daily_rewards
@@ -58,6 +59,11 @@ async def rewards_loop():
 
 async def main():
     init_db()
+
+    if not run_startup_checks():
+        logger.error("Startup checks failed — LP manager not starting")
+        return
+
     log_event("startup", "lp_manager", "LP Manager agent started")
     logger.info("LP Manager agent started")
 

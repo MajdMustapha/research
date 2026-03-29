@@ -18,15 +18,19 @@ MOCK_CONFIG = {
 }
 
 
-def _patch_risk(bankroll=1000.0, open_positions=None):
+def _patch_risk(bankroll=1000.0, open_positions=None, paper_trades=None, today_pnl=0.0):
     """Return a context stack of patches for risk module dependencies."""
     if open_positions is None:
         open_positions = []
+    if paper_trades is None:
+        paper_trades = []
 
     return [
         patch("lib.risk._load_config", return_value=MOCK_CONFIG),
         patch("lib.risk.get_bankroll", return_value=bankroll),
         patch("lib.risk.get_open_positions", return_value=open_positions),
+        patch("lib.risk.get_open_paper_trades", return_value=paper_trades),
+        patch("lib.risk.get_today_realized_pnl", return_value=today_pnl),
     ]
 
 
@@ -186,6 +190,91 @@ class TestRiskCheck:
             )
             assert result.approved is False
             assert "size_below_minimum" in result.reason
+        finally:
+            for p in patches:
+                p.stop()
+
+
+    def test_risk_check_blocks_daily_loss_limit(self):
+        """Blocks all trading when daily realized loss >= 10% of bankroll."""
+        # 10% of 1000 = 100. If we lost $120 today, should block.
+        patches = _patch_risk(bankroll=1000.0, open_positions=[], today_pnl=-120.0)
+        for p in patches:
+            p.start()
+        try:
+            result = risk_check(
+                market_id="market_1",
+                side="buy",
+                price=0.50,
+                requested_size=15.0,
+                token_id="token_1",
+            )
+            assert result.approved is False
+            assert "daily_loss_limit_breached" in result.reason
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_risk_check_allows_within_daily_loss_limit(self):
+        """Allows trading when daily realized loss < 10% of bankroll."""
+        patches = _patch_risk(bankroll=1000.0, open_positions=[], today_pnl=-50.0)
+        for p in patches:
+            p.start()
+        try:
+            result = risk_check(
+                market_id="market_1",
+                side="buy",
+                price=0.50,
+                requested_size=15.0,
+                token_id="token_1",
+            )
+            assert result.approved is True
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_risk_check_counts_paper_trades_in_position_limit(self):
+        """Paper trades count toward the 5-position limit."""
+        open_positions = [{"market_id": f"live_{i}"} for i in range(3)]
+        paper_trades = [{"market_id": f"paper_{i}"} for i in range(2)]
+        patches = _patch_risk(
+            bankroll=1000.0, open_positions=open_positions, paper_trades=paper_trades
+        )
+        for p in patches:
+            p.start()
+        try:
+            # 3 live + 2 paper = 5 total -> should block
+            result = risk_check(
+                market_id="market_new",
+                side="buy",
+                price=0.50,
+                requested_size=15.0,
+                token_id="token_1",
+            )
+            assert result.approved is False
+            assert "max_open_positions_reached" in result.reason
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_risk_check_blocks_duplicate_paper_market(self):
+        """Blocks entering a market that already has a paper trade."""
+        paper_trades = [{"market_id": "paper_market_1"}]
+        patches = _patch_risk(
+            bankroll=1000.0, open_positions=[], paper_trades=paper_trades
+        )
+        for p in patches:
+            p.start()
+        try:
+            result = risk_check(
+                market_id="paper_market_1",
+                side="buy",
+                price=0.50,
+                requested_size=15.0,
+                token_id="token_1",
+            )
+            assert result.approved is False
+            assert result.reason == "already_have_position_in_market"
         finally:
             for p in patches:
                 p.stop()
