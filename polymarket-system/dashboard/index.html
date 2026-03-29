@@ -346,12 +346,11 @@ function fmtPnl(v) {
 
 // ── Nav ────────────────────────────────────────────────────────────────────────
 const NAV = [
-  { id:'overview',     icon:'◉', label:'Overview' },
-  { id:'signals',      icon:'◈', label:'Signals' },
-  { id:'trades',       icon:'◆', label:'Trades' },
-  { id:'resolutions',  icon:'◇', label:'Resolutions' },
-  { id:'log',          icon:'▣', label:'Activity Log' },
-  { id:'config',       icon:'◧', label:'Config' },
+  { id:'overview', icon:'◉', label:'Overview' },
+  { id:'signals',  icon:'◈', label:'Signals' },
+  { id:'trades',   icon:'◆', label:'Trades' },
+  { id:'log',      icon:'▣', label:'Activity Log' },
+  { id:'config',   icon:'◧', label:'Config' },
 ];
 
 // ── Stats bar ─────────────────────────────────────────────────────────────────
@@ -494,9 +493,13 @@ function Signals({ signals }) {
 }
 
 // ── Trades tab ────────────────────────────────────────────────────────────────
-function Trades({ trades, onResolve }) {
+function Trades({ trades, resolutions, onResolve }) {
   const [resolveId, setResolveId] = useState(null);
   const [pnlInput, setPnlInput] = useState('');
+
+  // Build lookup from resolutions
+  const resMap = {};
+  (resolutions || []).forEach(r => { resMap[r.trade_id] = r; });
 
   return (
     <div>
@@ -508,7 +511,7 @@ function Trades({ trades, onResolve }) {
               <tr>
                 <th>ID</th><th>Time</th><th>Market</th>
                 <th>Dir</th><th>Entry</th><th>My Prob</th><th>Bet</th><th>Edge</th>
-                <th>Status</th><th>P&L</th><th>Action</th>
+                <th>Observed</th><th>Result</th><th>P&L</th>
               </tr>
             </thead>
             <tbody>
@@ -529,39 +532,15 @@ function Trades({ trades, onResolve }) {
                   <td className="mono" style={{color:'var(--warn)'}}>{fmt(t.my_prob,3)}</td>
                   <td className="mono">${fmt(t.bet_usdc)}</td>
                   <td><EdgeBar pts={t.edge_pts} /></td>
+                  <td className="mono" style={{color: resMap[t.id]?.observed ? 'var(--warn)' : 'var(--muted)', fontSize:11, fontWeight:700}}>
+                    {resMap[t.id]?.observed || '—'}
+                  </td>
                   <td>
-                    <span className={`badge ${t.status === 'dry_run' ? 'dry' : t.status?.startsWith('maker') ? 'filled' : t.status === 'filled' ? 'filled' : 'error'}`}>
-                      {t.status}
-                    </span>
+                    {resMap[t.id]?.outcome === 'WIN' ? <span className="badge yes">WIN</span>
+                     : resMap[t.id]?.outcome === 'LOSS' ? <span className="badge no">LOSS</span>
+                     : <span className="badge dry">pending</span>}
                   </td>
                   <td>{fmtPnl(t.pnl)}</td>
-                  <td>
-                    {!t.resolved && (
-                      resolveId === t.id ? (
-                        <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                          <input
-                            type="number" step="0.01" placeholder="P&L"
-                            value={pnlInput}
-                            onChange={e=>setPnlInput(e.target.value)}
-                            style={{width:70,background:'#06060e',border:'1px solid var(--border)',
-                              color:'var(--text)',borderRadius:4,padding:'3px 6px',
-                              fontFamily:'var(--mono)',fontSize:11}}
-                          />
-                          <button className="btn primary" style={{padding:'3px 8px',fontSize:10}}
-                            onClick={()=>{ onResolve(t.id, parseFloat(pnlInput)); setResolveId(null); setPnlInput(''); }}>
-                            OK
-                          </button>
-                          <button className="btn ghost" style={{padding:'3px 8px',fontSize:10}}
-                            onClick={()=>setResolveId(null)}>&#10005;</button>
-                        </div>
-                      ) : (
-                        <button className="btn ghost" style={{padding:'4px 10px',fontSize:10}}
-                          onClick={()=>setResolveId(t.id)}>
-                          Resolve
-                        </button>
-                      )
-                    )}
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -644,67 +623,6 @@ function Config({ config }) {
         <div className="log-line info">  claude --agent polymarket-trader</div>
         <div className="log-line signal">// Dashboard stays at:</div>
         <div className="log-line info">  http://localhost:8000/dashboard</div>
-      </div>
-    </div>
-  );
-}
-
-// ── Resolutions tab ──────────────────────────────────────────────────────────
-function Resolutions({ resolutions }) {
-  if (!resolutions) return <div className="empty">Loading...</div>;
-  const wins = resolutions.filter(r => r.outcome === 'WIN').length;
-  const losses = resolutions.filter(r => r.outcome === 'LOSS').length;
-  const pending = resolutions.filter(r => r.outcome === 'pending').length;
-
-  return (
-    <div>
-      <p className="section-title">TRADE RESOLUTIONS — observed vs forecast</p>
-      <div className="stats-grid" style={{marginBottom:20}}>
-        <StatCard label="Wins" value={wins} color="green" sub="correct calls" />
-        <StatCard label="Losses" value={losses} color="red" sub="missed" />
-        <StatCard label="Pending" value={pending} color="purple" sub="awaiting data" />
-        <StatCard label="Accuracy" value={wins+losses > 0 ? `${((wins/(wins+losses))*100).toFixed(0)}%` : '—'} color="orange" sub="of resolved" />
-      </div>
-      <div className="table-wrap">
-        {resolutions.length === 0 ? <div className="empty">NO TRADES TO RESOLVE</div> : (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th><th>City</th><th>Date</th><th>Dir</th><th>Range</th>
-                <th>Observed</th><th>Result</th><th>Bet</th><th>P&L</th><th>Market</th>
-              </tr>
-            </thead>
-            <tbody>
-              {resolutions.map(r => (
-                <tr key={r.trade_id}>
-                  <td className="mono" style={{color:'var(--muted)'}}>{r.trade_id}</td>
-                  <td style={{color:'var(--accent2)',fontWeight:700}}>{r.city || '—'}</td>
-                  <td className="mono">{r.date || '—'}</td>
-                  <td><span className={`badge ${r.direction === 'YES' ? 'yes' : 'no'}`}>{r.direction}</span></td>
-                  <td className="mono" style={{fontSize:11}}>{r.range || '—'}</td>
-                  <td className="mono" style={{color: r.observed ? 'var(--warn)' : 'var(--muted)', fontWeight:700}}>
-                    {r.observed || 'pending'}
-                  </td>
-                  <td>
-                    <span className={`badge ${r.outcome === 'WIN' ? 'yes' : r.outcome === 'LOSS' ? 'no' : 'dry'}`}>
-                      {r.outcome}
-                    </span>
-                  </td>
-                  <td className="mono">${fmt(r.bet_usdc)}</td>
-                  <td>{fmtPnl(r.pnl)}</td>
-                  <td>
-                    {r.slug ? (
-                      <a href={`https://polymarket.com/event/${r.slug}`} target="_blank" rel="noopener"
-                         className="btn ghost" style={{padding:'3px 8px',fontSize:9,textDecoration:'none'}}>
-                        View
-                      </a>
-                    ) : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
       </div>
     </div>
   );
@@ -799,8 +717,7 @@ function App() {
         <main className="main">
           {tab === 'overview' && <Overview stats={stats} status={status} onTrigger={triggerScan} />}
           {tab === 'signals'  && <Signals signals={signals} />}
-          {tab === 'trades'   && <Trades trades={trades} onResolve={resolveTrade} />}
-          {tab === 'resolutions' && <Resolutions resolutions={resolutions} />}
+          {tab === 'trades'   && <Trades trades={trades} resolutions={resolutions} onResolve={resolveTrade} />}
           {tab === 'log'      && <ActivityLog scans={scans} signals={signals} />}
           {tab === 'config'   && <Config config={config} />}
         </main>
