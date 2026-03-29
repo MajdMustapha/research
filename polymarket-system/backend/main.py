@@ -1120,8 +1120,8 @@ async def run_scan():
                     log.info(f"LONGSHOT: NO on '{q[:55]}' mispricing={mispricing_pct:.0f}% "
                              f"edge={true_edge*100:.1f}pts mkt={mkt_price:.3f} my_p={my_p:.3f}")
 
-                elif mkt_price <= 0.01 or mkt_price >= 0.99:
-                    continue  # skip illiquid contracts (normal path)
+                elif mkt_price <= 0.05 or mkt_price >= 0.90:
+                    continue  # skip extreme contracts — no real edge in consensus zones
                 else:
                     # Normal edge detection
                     edge = my_p - mkt_price
