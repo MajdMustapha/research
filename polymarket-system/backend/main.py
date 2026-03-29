@@ -1607,10 +1607,60 @@ def backtest_history(limit: int = 20):
     return db_query("SELECT * FROM backtest_runs ORDER BY id DESC LIMIT ?", (limit,))
 
 # ── Auto-resolution: check actual observed temperatures ──────────────────────
+# ── Resolution station mapping ────────────────────────────────────────────────
+# Maps city → WU station path (from Polymarket market descriptions)
+# Polymarket resolves using Weather Underground airport station readings.
+WU_STATIONS = {
+    "london":        "gb/london/EGLC",        # London City Airport
+    "seoul":         "kr/incheon/RKSI",        # Incheon Intl
+    "atlanta":       "us/ga/atlanta/KATL",     # Hartsfield-Jackson
+    "new york city": "us/ny/new-york-city/KLGA",  # LaGuardia
+    "nyc":           "us/ny/new-york-city/KLGA",
+    "paris":         "fr/paris/LFPG",          # Charles de Gaulle
+    "tokyo":         "jp/tokyo/RJTT",          # Haneda
+    "chicago":       "us/il/chicago/KORD",     # O'Hare
+    "dallas":        "us/tx/dallas/KDAL",      # Dallas Love Field
+    "miami":         "us/fl/miami/KMIA",
+    "los angeles":   "us/ca/los-angeles/KLAX",
+    "houston":       "us/tx/houston/KHOU",     # Hobby
+    "san francisco": "us/ca/san-francisco/KSFO",
+    "seattle":       "us/wa/seatac/KSEA",
+    "ankara":        "tr/%C3%A7ubuk/LTAC",     # Esenboğa
+    "madrid":        "es/madrid/LEMD",         # Barajas
+    "milan":         "it/milan/LIMC",          # Malpensa
+    "munich":        "de/munich/EDDM",
+    "warsaw":        "pl/warsaw/EPWA",         # Chopin
+    "singapore":     "sg/singapore/WSSS",      # Changi
+    "shanghai":      "cn/shanghai/ZSPD",       # Pudong
+    "shenzhen":      "cn/shenzhen/ZGSZ",       # Bao'an
+    "toronto":       "ca/mississauga/CYYZ",    # Pearson
+    "wellington":    "nz/wellington/NZWN",
+    "sao paulo":     "br/guarulhos/SBGR",      # Guarulhos
+    "austin":        "us/tx/austin/KAUS",
+    "tel aviv":      "il/tel-aviv/LLBG",       # Ben Gurion (NOAA)
+    "taipei":        "tw/taipei/RCTP",         # Taoyuan (NOAA)
+    "hong kong":     "hk/hong-kong/VHHH",      # HK Observatory
+}
+
+# Coordinates updated to match Polymarket's resolution stations (not forecast stations)
+WU_STATION_COORDS = {
+    "london":        (51.5048, 0.0495),    # EGLC London City (not Heathrow!)
+    "seoul":         (37.4602, 126.4407),   # RKSI Incheon (not Gimpo!)
+    "dallas":        (32.8481, -96.8512),   # KDAL Love Field (not DFW!)
+    "houston":       (29.6454, -95.2789),   # KHOU Hobby (not Bush IAH!)
+    "tokyo":         (35.5494, 139.7798),   # RJTT Haneda
+}
+
 def get_observed_high(city: str, date_str: str) -> Optional[float]:
-    """Fetch actual observed high temperature (°C) from Open-Meteo historical API."""
+    """Fetch actual observed high temperature (°C).
+    Uses Open-Meteo archive API with coordinates matching the Polymarket
+    resolution station (WU airport) for consistency."""
     key = city.lower().strip()
-    coords = next((v for k, v in CITY_COORDS.items() if k in key or key in k), None)
+
+    # Use resolution station coords if available (more accurate match to Polymarket)
+    coords = WU_STATION_COORDS.get(key)
+    if not coords:
+        coords = next((v for k, v in CITY_COORDS.items() if k in key or key in k), None)
     if not coords:
         return None
     lat, lon = coords
@@ -1739,6 +1789,8 @@ def get_resolutions():
             "range": f"{lo}-{hi}°{runit}" if lo is not None else None,
             "observed": obs_display,
             "outcome": outcome_str,
+            "wu_station": WU_STATIONS.get((city or "").lower(), ""),
+            "wu_url": f"https://www.wunderground.com/history/daily/{WU_STATIONS.get((city or '').lower(), '')}/date/{date_str}" if city and WU_STATIONS.get((city or "").lower()) else None,
             "resolved": bool(t["resolved"]),
             "pnl": t["pnl"],
             "slug": t.get("market_slug"),
