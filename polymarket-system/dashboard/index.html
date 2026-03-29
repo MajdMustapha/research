@@ -349,6 +349,7 @@ const NAV = [
   { id:'overview', icon:'◉', label:'Overview' },
   { id:'signals',  icon:'◈', label:'Signals' },
   { id:'trades',   icon:'◆', label:'Trades' },
+  { id:'ab',       icon:'◎', label:'A/B Test' },
   { id:'log',      icon:'▣', label:'Activity Log' },
   { id:'config',   icon:'◧', label:'Config' },
 ];
@@ -414,11 +415,17 @@ function Overview({ stats, status, onTrigger }) {
 
       <p className="section-title">BOT STATUS</p>
       <div className="table-wrap" style={{marginBottom:24}}>
-        <div className="bot-status-grid" style={{padding:'16px 20px', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16}}>
+        <div className="bot-status-grid" style={{padding:'16px 20px', display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))', gap:16}}>
           <div>
             <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6}}>MODE</div>
-            <div className={`badge ${status?.mode === 'LIVE' ? 'live' : 'dry'}`} style={{fontSize:12}}>
+            <div className={`badge ${status?.mode?.includes('LIVE') ? 'live' : 'dry'}`} style={{fontSize:12}}>
               {status?.mode ?? '…'}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6}}>ORDER TYPE</div>
+            <div className="mono" style={{color: status?.maker_mode ? 'var(--accent)' : 'var(--accent2)'}}>
+              {status?.maker_mode ? 'MAKER' : 'TAKER'}
             </div>
           </div>
           <div>
@@ -428,6 +435,14 @@ function Overview({ stats, status, onTrigger }) {
           <div>
             <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6}}>NEXT SCAN</div>
             <div className="next-scan">in <span>{countdown || '…'}</span></div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6}}>ENSEMBLE</div>
+            <div className="mono" style={{color:'var(--warn)'}}>{(status?.ensemble_models||[]).join(' + ')}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6}}>STRATEGIES</div>
+            <div className="mono" style={{fontSize:10,color:'var(--text)'}}>Edge + Longshot + Bayes</div>
           </div>
         </div>
       </div>
@@ -494,8 +509,8 @@ function Trades({ trades, onResolve }) {
           <table>
             <thead>
               <tr>
-                <th>ID</th><th>Time</th><th>Market</th><th>Outcome</th>
-                <th>Direction</th><th>Entry</th><th>Bet</th><th>Edge</th>
+                <th>ID</th><th>Time</th><th>Market</th>
+                <th>Dir</th><th>Type</th><th>Entry</th><th>My Prob</th><th>Bet</th><th>Edge</th>
                 <th>Status</th><th>P&L</th><th>Action</th>
               </tr>
             </thead>
@@ -505,13 +520,19 @@ function Trades({ trades, onResolve }) {
                   <td className="mono" style={{color:'var(--muted)'}}>{t.id}</td>
                   <td className="mono">{fmtTs(t.ts)}</td>
                   <td style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11,color:'var(--muted)'}}>{t.market}</td>
-                  <td className="mono">{t.outcome}</td>
                   <td><span className={`badge ${t.direction === 'YES' ? 'yes' : 'no'}`}>{t.direction}</span></td>
+                  <td>
+                    <span className="mono" style={{fontSize:10,
+                      color: t.order_type === 'maker' ? 'var(--accent)' : 'var(--accent2)'}}>
+                      {(t.order_type||'taker').toUpperCase()}
+                    </span>
+                  </td>
                   <td className="mono">${fmt(t.market_price)}</td>
+                  <td className="mono" style={{color:'var(--warn)'}}>{fmt(t.my_prob,3)}</td>
                   <td className="mono">${fmt(t.bet_usdc)}</td>
                   <td><EdgeBar pts={t.edge_pts} /></td>
                   <td>
-                    <span className={`badge ${t.status === 'dry_run' ? 'dry' : t.status === 'filled' ? 'filled' : 'error'}`}>
+                    <span className={`badge ${t.status === 'dry_run' ? 'dry' : t.status?.startsWith('maker') ? 'filled' : t.status === 'filled' ? 'filled' : 'error'}`}>
                       {t.status}
                     </span>
                   </td>
@@ -533,7 +554,7 @@ function Trades({ trades, onResolve }) {
                             OK
                           </button>
                           <button className="btn ghost" style={{padding:'3px 8px',fontSize:10}}
-                            onClick={()=>setResolveId(null)}>✕</button>
+                            onClick={()=>setResolveId(null)}>&#10005;</button>
                         </div>
                       ) : (
                         <button className="btn ghost" style={{padding:'4px 10px',fontSize:10}}
@@ -590,10 +611,14 @@ function Config({ config }) {
       <div className="table-wrap">
         <div style={{padding:'20px',display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))',gap:20}}>
           {[
-            { key:'Mode',          val: config?.dry_run ? 'DRY RUN (no real trades)' : '🔴 LIVE TRADING' },
+            { key:'Mode',          val: config?.dry_run ? 'DRY RUN (no real trades)' : 'LIVE TRADING' },
+            { key:'Order Type',    val: status?.maker_mode ? 'MAKER (limit)' : 'TAKER (market)' },
             { key:'Max Bet/Trade', val: `$${config?.max_bet} USDC` },
             { key:'Min Edge',      val: `${config?.min_edge} points` },
+            { key:'Kelly Fraction', val: `${config?.kelly_fraction}x` },
+            { key:'Bankroll',      val: `$${config?.bankroll} USDC` },
             { key:'Scan Interval', val: `Every ${config?.scan_interval_min} minutes` },
+            { key:'Maker Spread',  val: `${status?.maker_spread || 0.01} spread` },
           ].map(r => (
             <div key={r.key}>
               <div style={{fontSize:9,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6,textTransform:'uppercase'}}>{r.key}</div>
@@ -626,6 +651,73 @@ function Config({ config }) {
   );
 }
 
+// ── A/B Test tab ─────────────────────────────────────────────────────────────
+function ABTest({ abData, status }) {
+  if (!abData) return <div className="empty">Loading A/B data...</div>;
+
+  const { maker, taker } = abData;
+
+  function ABCard({ label, data, color }) {
+    return (
+      <div className="table-wrap" style={{flex:1}}>
+        <div className="table-head" style={{color: `var(--${color})`}}>{label}</div>
+        <div style={{padding:'16px 20px'}}>
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12}}>
+            {[
+              ['Trades',    data.count],
+              ['Settled',   data.settled],
+              ['Wins',      data.wins],
+              ['Win Rate',  data.win_rate ? `${(data.win_rate*100).toFixed(0)}%` : '—'],
+              ['Total Bet', `$${fmt(data.total_bet)}`],
+              ['Total P&L', `$${fmt(data.total_pnl)}`],
+              ['Avg Edge',  `${fmt(data.avg_edge,1)}pt`],
+              ['Avg EV/10', `$${fmt(data.avg_ev)}`],
+            ].map(([k,v]) => (
+              <div key={k}>
+                <div style={{fontSize:9,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:4,textTransform:'uppercase'}}>{k}</div>
+                <div className="mono" style={{fontSize:16,color:'var(--text)'}}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="section-title">A/B TEST — MAKER VS TAKER</p>
+
+      <div className="table-wrap" style={{marginBottom:20}}>
+        <div style={{padding:'16px 20px', display:'flex', alignItems:'center', gap:16}}>
+          <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2}}>ACTIVE MODE</div>
+          <span className={`badge ${abData.maker_mode_active ? 'yes' : 'dry'}`} style={{fontSize:12}}>
+            {abData.maker_mode_active ? 'MAKER (limit orders)' : 'TAKER (market orders)'}
+          </span>
+          <div style={{marginLeft:'auto',fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)'}}>
+            Set MAKER_MODE=true in .env to switch
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:'flex', gap:16, marginBottom:24, flexWrap:'wrap'}}>
+        <ABCard label="MAKER (limit orders)" data={maker} color="accent" />
+        <ABCard label="TAKER (market orders)" data={taker} color="accent2" />
+      </div>
+
+      <p className="section-title">STRATEGY INSIGHTS</p>
+      <div className="log-panel">
+        <div className="log-line signal">// Research: makers earn +1.12% per trade, takers lose -1.12% (72M trades)</div>
+        <div className="log-line info">// Maker mode places GTC post-only limit orders via polymarket CLI</div>
+        <div className="log-line info">// Taker mode places FOK market orders via py-clob-client</div>
+        <div className="log-line signal">// Active strategies: Edge detection + Longshot tail + Bayesian updating</div>
+        <div className="log-line info">// Correlated position management halves Kelly per additional city+date trade</div>
+        <div className="log-line info">// Ensemble: 80 members (30 GFS + 50 ECMWF) for calibrated probabilities</div>
+      </div>
+    </div>
+  );
+}
+
 // ── Root App ──────────────────────────────────────────────────────────────────
 function App() {
   const [tab,     setTab]     = useState('overview');
@@ -635,19 +727,21 @@ function App() {
   const [signals, setSignals] = useState([]);
   const [scans,   setScans]   = useState([]);
   const [config,  setConfig]  = useState(null);
+  const [abData,  setAbData]  = useState(null);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [st, sta, tr, si, sc, cf] = await Promise.all([
+      const [st, sta, tr, si, sc, cf, ab] = await Promise.all([
         fetch(`${API}/status`).then(r=>r.json()),
         fetch(`${API}/stats`).then(r=>r.json()),
         fetch(`${API}/trades`).then(r=>r.json()),
         fetch(`${API}/signals`).then(r=>r.json()),
         fetch(`${API}/scans`).then(r=>r.json()),
         fetch(`${API}/config`).then(r=>r.json()),
+        fetch(`${API}/ab/stats`).then(r=>r.json()),
       ]);
       setStatus(st); setStats(sta); setTrades(tr);
-      setSignals(si); setScans(sc); setConfig(cf);
+      setSignals(si); setScans(sc); setConfig(cf); setAbData(ab);
     } catch(e) { /* backend not up yet */ }
   }, []);
 
@@ -714,6 +808,7 @@ function App() {
           {tab === 'overview' && <Overview stats={stats} status={status} onTrigger={triggerScan} />}
           {tab === 'signals'  && <Signals signals={signals} />}
           {tab === 'trades'   && <Trades trades={trades} onResolve={resolveTrade} />}
+          {tab === 'ab'       && <ABTest abData={abData} status={status} />}
           {tab === 'log'      && <ActivityLog scans={scans} signals={signals} />}
           {tab === 'config'   && <Config config={config} />}
         </main>
