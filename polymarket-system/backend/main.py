@@ -39,6 +39,9 @@ KELLY_FRACTION = float(os.getenv("KELLY_FRACTION", "0.25"))  # quarter-Kelly def
 BANKROLL_USDC  = float(os.getenv("BANKROLL_USDC", "100"))
 PRIVATE_KEY    = os.getenv("POLY_PRIVATE_KEY", "")
 FUNDER_ADDR    = os.getenv("POLY_FUNDER_ADDRESS", "")
+# A/B test: maker mode uses limit orders (post-only) instead of market orders (taker)
+MAKER_MODE     = os.getenv("MAKER_MODE", "false").lower() == "true"
+MAKER_SPREAD   = float(os.getenv("MAKER_SPREAD", "0.01"))  # place limit 1¢ better than our edge price
 
 GAMMA_API      = "https://gamma-api.polymarket.com"
 CLOB_API       = "https://clob.polymarket.com"
@@ -107,6 +110,7 @@ def init_db():
         kelly_frac  REAL,
         status      TEXT,
         tx_hash     TEXT,
+        order_type  TEXT DEFAULT 'taker',
         resolved    INTEGER DEFAULT 0,
         pnl         REAL
     );
@@ -1156,8 +1160,16 @@ async def run_scan():
                 # Execute (dry or live)
                 status = "dry_run"
                 tx_hash = None
-                if not DRY_RUN and PRIVATE_KEY and FUNDER_ADDR and market.get("_is_open"):
-                    status, tx_hash = execute_live(market, outcome, direction, mkt_price, bet_size)
+                order_type = "maker" if MAKER_MODE else "taker"
+                if not DRY_RUN and market.get("_is_open"):
+                    if MAKER_MODE:
+                        # Maker mode: limit order via CLI (no py-clob-client needed)
+                        status, tx_hash = execute_maker(
+                            market, outcome, direction, my_p, mkt_price, bet_size)
+                    elif PRIVATE_KEY and FUNDER_ADDR:
+                        # Taker mode: market order via py-clob-client
+                        status, tx_hash = execute_live(
+                            market, outcome, direction, mkt_price, bet_size)
 
                 trade = {
                     "ts": now, "market": q, "outcome": outcome,
@@ -1165,7 +1177,7 @@ async def run_scan():
                     "my_prob": round(my_p if direction == "YES" else (1 - my_p), 4),
                     "edge_pts": sig["edge_pts"], "ev_per_10": sig["ev_per_10"],
                     "bet_usdc": bet_size, "kelly_frac": round(KELLY_FRACTION, 2),
-                    "status": status,
+                    "status": status, "order_type": order_type,
                     "tx_hash": tx_hash, "resolved": 0, "pnl": None,
                 }
                 db_insert("trades", trade)
@@ -1237,8 +1249,14 @@ async def run_scan():
 
                 status = "dry_run"
                 tx_hash = None
-                if not DRY_RUN and PRIVATE_KEY and FUNDER_ADDR and market.get("_is_open"):
-                    status, tx_hash = execute_live(market, outcome, direction, mkt_price, bet_size)
+                order_type = "maker" if MAKER_MODE else "taker"
+                if not DRY_RUN and market.get("_is_open"):
+                    if MAKER_MODE:
+                        status, tx_hash = execute_maker(
+                            market, outcome, direction, my_p, mkt_price, bet_size)
+                    elif PRIVATE_KEY and FUNDER_ADDR:
+                        status, tx_hash = execute_live(
+                            market, outcome, direction, mkt_price, bet_size)
 
                 trade = {
                     "ts": now, "market": q, "outcome": outcome,
@@ -1246,7 +1264,7 @@ async def run_scan():
                     "my_prob": round(my_p if direction == "YES" else (1 - my_p), 4),
                     "edge_pts": sig["edge_pts"], "ev_per_10": sig["ev_per_10"],
                     "bet_usdc": bet_size, "kelly_frac": round(KELLY_FRACTION, 2),
-                    "status": status,
+                    "status": status, "order_type": order_type,
                     "tx_hash": tx_hash, "resolved": 0, "pnl": None,
                 }
                 db_insert("trades", trade)
@@ -1287,6 +1305,65 @@ def execute_live(market, outcome, direction, price, bet_size):
                 resp.get("orderID"))
     except Exception as e:
         return f"error: {e}", None
+
+def execute_maker(market, outcome, direction, my_prob, mkt_price, bet_size):
+    """Place a limit order via polymarket CLI (maker/post-only).
+
+    Strategy: place a limit order at a price that gives us edge while sitting
+    on the book as a maker. For BUY YES, we bid slightly below our fair value.
+    For BUY NO (sell YES), we offer slightly above market.
+
+    The --post-only flag ensures we never cross the spread and always earn
+    the maker rebate instead of paying taker fees.
+    """
+    tokens = market.get("tokens") or []
+    tok = next((t for t in tokens if t.get("outcome", "").lower() == outcome.lower()), None)
+    if not tok:
+        return "error_no_token", None
+
+    token_id = tok["token_id"]
+
+    # Calculate limit price: we want to be the maker, so we place
+    # our order inside the spread at a price still profitable for us
+    if direction == "YES":
+        # Buying YES: bid at market price (we think it's underpriced)
+        # Place slightly above current market to sit at top of book
+        limit_price = round(min(mkt_price + MAKER_SPREAD, my_prob - MAKER_SPREAD), 2)
+        limit_price = max(0.01, min(0.99, limit_price))
+        side = "buy"
+    else:
+        # Buying NO = Selling YES: offer at market price
+        # Place slightly below current to sit at top of ask
+        limit_price = round(max(mkt_price - MAKER_SPREAD, (1 - my_prob) + MAKER_SPREAD), 2)
+        limit_price = max(0.01, min(0.99, limit_price))
+        side = "sell"
+
+    # Calculate size in shares: bet_size_usdc / price = number of shares
+    shares = max(1, int(bet_size / limit_price))
+
+    args = [
+        "clob", "create-order",
+        "--token", token_id,
+        "--side", side,
+        "--price", str(limit_price),
+        "--size", str(shares),
+        "--order-type", "GTC",
+        "--post-only",
+    ]
+
+    log.info(f"MAKER ORDER: {side} {shares} shares @ ${limit_price} "
+             f"(token={token_id[:16]}... direction={direction})")
+
+    result = poly_cli(args, timeout=15)
+    if result is None:
+        return "maker_error", None
+
+    order_id = None
+    if isinstance(result, dict):
+        order_id = result.get("orderID") or result.get("order_id") or result.get("id")
+        status = result.get("status", "posted")
+        return f"maker_{status}", order_id
+    return "maker_posted", order_id
 
 # ── Improvement 4: Backtest engine ───────────────────────────────────────────
 def run_backtest(city: str, dates: list[str], threshold: float = None):
@@ -1404,7 +1481,9 @@ def status():
         "bankroll": BANKROLL_USDC,
         "ws_connected": len(ws_prices) > 0,
         "ws_tokens_tracked": len(ws_prices),
-        "mode": "DRY RUN" if DRY_RUN else "LIVE",
+        "mode": "DRY RUN" if DRY_RUN else ("LIVE MAKER" if MAKER_MODE else "LIVE TAKER"),
+        "maker_mode": MAKER_MODE,
+        "maker_spread": MAKER_SPREAD,
         "include_closed_for_test": INCLUDE_CLOSED_FOR_TEST,
         "api_source": "CLI+CLOB",
         "poly_cli": POLY_CLI,
@@ -1606,6 +1685,39 @@ def reset_errors():
 def ws_price_snapshot():
     """Return current WebSocket price cache."""
     return ws_prices
+
+# ── A/B test: maker vs taker comparison ─────────────────────────────────────
+@app.get("/api/ab/stats")
+def ab_stats():
+    """Compare maker vs taker performance for A/B testing."""
+    trades = db_query("SELECT * FROM trades")
+
+    def _stats(subset):
+        if not subset:
+            return {"count": 0, "settled": 0, "wins": 0, "win_rate": 0,
+                    "total_bet": 0, "total_pnl": 0, "avg_edge": 0, "avg_ev": 0}
+        settled = [t for t in subset if t["pnl"] is not None]
+        wins = [t for t in settled if t["pnl"] > 0]
+        return {
+            "count": len(subset),
+            "settled": len(settled),
+            "wins": len(wins),
+            "win_rate": round(len(wins) / len(settled), 3) if settled else 0,
+            "total_bet": round(sum(t["bet_usdc"] for t in subset), 2),
+            "total_pnl": round(sum(t["pnl"] for t in settled), 2) if settled else 0,
+            "avg_edge": round(sum(t["edge_pts"] for t in subset) / len(subset), 1),
+            "avg_ev": round(sum(t["ev_per_10"] for t in subset) / len(subset), 2),
+        }
+
+    maker_trades = [t for t in trades if t.get("order_type") == "maker"]
+    taker_trades = [t for t in trades if t.get("order_type") != "maker"]
+
+    return {
+        "maker_mode_active": MAKER_MODE,
+        "maker": _stats(maker_trades),
+        "taker": _stats(taker_trades),
+        "total_trades": len(trades),
+    }
 
 # ── Polymarket CLI API endpoints ─────────────────────────────────────────────
 @app.get("/api/poly/search")
