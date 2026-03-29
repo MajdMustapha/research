@@ -1,0 +1,36 @@
+portfolio:
+  tickers: [AMZN, CRM, CRWD, GOOGL, META, MSFT, NVDA]
+  positions:
+    AMZN:  { shares: 28, avg_cost: 207.55, sector: "Cloud / eCommerce" }
+    CRM:   { shares: 10, avg_cost: 186.02, sector: "Enterprise SaaS" }
+    CRWD:  { shares: 10, avg_cost: 393.04, sector: "Cybersecurity" }
+    GOOGL: { shares: 19, avg_cost: 280.92, sector: "Mega-cap / AI" }
+    META:  { shares: 15, avg_cost: 547.83, sector: "Social / AI" }
+    MSFT:  { shares: 22, avg_cost: 366.02, sector: "Cloud / AI" }
+    NVDA:  { shares: 26, avg_cost: 171.24, sector: "AI / Semis" }
+
+investor:
+  age: 30
+  location: Belgium
+  income_eur: 4200
+  horizon_years: 25
+  thesis: "AI and GenAI as transformative infrastructure — AMZN/MSFT/GOOGL own cloud+AI infra, NVDA owns the GPU stack, META owns social AI distribution, CRWD owns AI-native security, CRM owns AI enterprise workflows"
+  apartment_savings_eur: 36000
+  monthly_dca_budget_eur: 400
+
+dca_signals:
+  strong_buy_threshold: -0.20     # >20% below cost basis
+  buy_threshold: -0.12            # >12% below cost basis
+  nibble_threshold: -0.05         # >5% below cost basis
+  wait_threshold: 0.05            # >5% above cost basis
+
+risk_rules:
+  max_position_pct: 0.30          # veto add if position > 30% of portfolio
+  max_monthly_dca_eur: 400        # hard cap on total monthly DCA
+  max_single_add_eur: 200         # max per position per month
+  earnings_buffer_days: 7         # reduce size if earnings within N days
+  correlated_pairs:               # only approve one per day
+    - [MSFT, AMZN]
+    - [NVDA, MSFT]
+  drawdown_caution_pct: -25       # flag caution at portfolio -25%
+  drawdown_pause_pct: -40         # suggest pause at portfolio -40%
