@@ -143,6 +143,17 @@ def init_db():
         win_rate    REAL,
         details     TEXT
     );
+    CREATE TABLE IF NOT EXISTS forecast_history (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts          TEXT NOT NULL,
+        city        TEXT NOT NULL,
+        target_date TEXT NOT NULL,
+        model       TEXT,
+        mean_c      REAL,
+        stdev_c     REAL,
+        member_count INTEGER,
+        members_json TEXT
+    );
     """)
     con.commit()
     con.close()
@@ -419,6 +430,34 @@ def evaluate_global_temp_market(market: dict) -> Optional[dict]:
         return None
 
 # ── CLOB API market fetcher ──────────────────────────────────────────────────
+def _normalize_cli_market(m: dict) -> dict:
+    """Normalize CLI market output to have a `tokens` list like CLOB API format.
+    CLI returns outcomePrices/outcomes/clobTokenIds as JSON strings; we parse them."""
+    if m.get("tokens"):
+        return m  # already has tokens
+
+    try:
+        outcomes = json.loads(m.get("outcomes", "[]"))
+        prices = json.loads(m.get("outcomePrices", "[]"))
+        token_ids = json.loads(m.get("clobTokenIds", "[]"))
+    except (json.JSONDecodeError, TypeError):
+        return m
+
+    tokens = []
+    for i in range(min(len(outcomes), len(prices), len(token_ids))):
+        tokens.append({
+            "outcome": outcomes[i],
+            "price": str(prices[i]),
+            "token_id": token_ids[i],
+        })
+    m["tokens"] = tokens
+
+    # Also normalize end_date_iso
+    if not m.get("end_date_iso") and m.get("endDateIso"):
+        m["end_date_iso"] = m["endDateIso"]
+
+    return m
+
 def _fetch_via_cli() -> list:
     """Primary: fetch weather markets using polymarket CLI (fast, tag-based)."""
     weather_markets = []
@@ -435,6 +474,7 @@ def _fetch_via_cli() -> list:
     # Deduplicate by question
     seen = set()
     for m in temp_markets + event_markets:
+        m = _normalize_cli_market(m)
         q = m.get("question", "")
         if q in seen:
             continue
@@ -698,6 +738,128 @@ def kelly_bet(my_prob: float, market_price: float, direction: str) -> float:
     bet = max(round(bet, 2), 0.10)  # minimum $0.10 bet
     return bet
 
+# ── Longshot tail exploitation ────────────────────────────────────────────────
+# Tail bins (e.g. "18°C or higher" at 5¢) are systematically overpriced per the
+# longshot bias research. When our ensemble says ~0%, selling YES is high-EV.
+LONGSHOT_MAX_PRICE = 0.10       # only target contracts priced under 10¢
+LONGSHOT_MAX_PROB  = 0.02       # ensemble must say <2% probability
+LONGSHOT_MIN_EDGE  = 3.0        # minimum edge in percentage points (lower bar for tails)
+
+def is_longshot_tail(lo: float, hi: float) -> bool:
+    """Check if this is a tail bin (open-ended range)."""
+    return lo <= -900 or hi >= 900
+
+def longshot_mispricing(mkt_price: float, my_prob: float) -> float:
+    """Calculate mispricing percentage for longshot contracts.
+    Positive = overpriced (sell opportunity)."""
+    if mkt_price <= 0:
+        return 0.0
+    return ((mkt_price - my_prob) / mkt_price) * 100
+
+# ── Bayesian forecast updating ────────────────────────────────────────────────
+# Track forecast evolution across model runs. When GFS and ECMWF disagree,
+# use Bayesian weighting based on historical reliability.
+
+def store_forecast_snapshot(city: str, target_date: str, forecast: dict):
+    """Save a forecast snapshot for Bayesian tracking."""
+    db_insert("forecast_history", {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "city": city,
+        "target_date": target_date,
+        "model": forecast.get("source", "unknown"),
+        "mean_c": forecast["mean"],
+        "stdev_c": forecast["stdev"],
+        "member_count": forecast["count"],
+        "members_json": json.dumps(forecast["members"][:100]),  # cap storage
+    })
+
+def get_bayesian_forecast(city: str, target_date: str, current_forecast: dict) -> dict:
+    """Combine current forecast with historical snapshots using Bayesian weighting.
+
+    Earlier forecasts get less weight (further from event = less accurate).
+    More recent forecasts get more weight. This produces a probability estimate
+    that accounts for forecast evolution and convergence.
+
+    Returns an updated forecast dict with blended members.
+    """
+    history = db_query(
+        "SELECT * FROM forecast_history WHERE city = ? AND target_date = ? ORDER BY ts DESC LIMIT 10",
+        (city, target_date)
+    )
+
+    if len(history) < 2:
+        # First observation — just store and return current
+        store_forecast_snapshot(city, target_date, current_forecast)
+        return current_forecast
+
+    # Bayesian blending: weight recent forecasts more heavily
+    # Weight decays: most recent = 1.0, each older snapshot = 0.7x previous
+    all_members = list(current_forecast["members"])  # weight 1.0 (newest)
+    decay = 0.7
+    weight = decay
+
+    for snap in history[:5]:  # blend up to 5 prior snapshots
+        try:
+            prior_members = json.loads(snap["members_json"])
+            # Subsample to match weight: if weight=0.7 and 80 members, take ~56
+            n_take = max(1, int(len(prior_members) * weight))
+            # Take evenly spaced members for representativeness
+            step = max(1, len(prior_members) // n_take)
+            all_members.extend(prior_members[::step][:n_take])
+            weight *= decay
+        except:
+            continue
+
+    # Store current snapshot
+    store_forecast_snapshot(city, target_date, current_forecast)
+
+    if len(all_members) < 3:
+        return current_forecast
+
+    blended = {
+        "members": all_members,
+        "mean": round(statistics.mean(all_members), 1),
+        "stdev": round(statistics.stdev(all_members), 1) if len(all_members) > 1 else 1.5,
+        "min": round(min(all_members), 1),
+        "max": round(max(all_members), 1),
+        "count": len(all_members),
+        "source": f"Bayesian blend ({len(history)+1} snapshots, {len(all_members)} members)",
+    }
+    return blended
+
+# ── Correlated position management ───────────────────────────────────────────
+# Multiple bins on the same city+date are highly correlated — if London hits 10°C,
+# then "10°C YES" wins AND "11°C NO" wins AND "12°C NO" wins simultaneously.
+# We halve Kelly sizing when we already have open positions on the same distribution.
+CORRELATION_KELLY_DISCOUNT = 0.5  # halve bet size for correlated positions
+
+def count_correlated_trades(city: str, date_str: str) -> int:
+    """Count how many unresolved trades we have on this city+date.
+    Matches city name and date (as 'Month Day') in the market question."""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        date_text = dt.strftime("%B %-d")  # e.g. "March 29"
+    except:
+        return 0
+    rows = db_query(
+        "SELECT COUNT(*) as cnt FROM trades WHERE resolved = 0 AND market LIKE ? AND market LIKE ?",
+        (f"%{city}%", f"%{date_text}%")
+    )
+    return rows[0]["cnt"] if rows else 0
+
+def correlated_kelly_adjustment(city: str, date_str: str, base_bet: float) -> float:
+    """Reduce bet size if we already have correlated positions on this city+date."""
+    existing = count_correlated_trades(city, date_str)
+    if existing == 0:
+        return base_bet
+    # Each additional correlated position halves the remaining allocation
+    discount = CORRELATION_KELLY_DISCOUNT ** existing
+    adjusted = round(base_bet * discount, 2)
+    adjusted = max(adjusted, 0.10)  # floor at $0.10
+    log.info(f"  Correlation adj: {city} {date_str} has {existing} existing trades, "
+             f"${base_bet} -> ${adjusted} ({discount:.0%} of base)")
+    return adjusted
+
 # ── Improvement 3: WebSocket price feed ──────────────────────────────────────
 # In-memory price cache updated by WebSocket
 ws_prices: dict = {}  # {token_id: {"price": float, "ts": str}}
@@ -794,7 +956,7 @@ def recently_traded(market_question: str) -> bool:
     return len(rows) > 0
 
 # ── Core scan loop ─────────────────────────────────────────────────────────────
-MAX_TRADES_PER_SCAN = 3
+MAX_TRADES_PER_SCAN = 6  # increased: 3 edge + 3 longshot tail max
 bot_status = {"running": False, "last_scan": None, "next_scan": None, "scan_count": 0}
 
 async def run_scan():
@@ -808,20 +970,32 @@ async def run_scan():
     now = datetime.now(timezone.utc).isoformat()
     log.info(f"=== SCAN START {now} DRY={DRY_RUN} ===")
 
+    # Auto-resolve past trades before scanning for new ones
+    try:
+        result = _do_auto_resolve()
+        if result["resolved"] > 0:
+            log.info(f"Auto-resolved {result['resolved']} trades at scan start")
+    except Exception as e:
+        log.warning(f"Auto-resolve failed: {e}")
+
     trades_made = 0
     candidates  = 0
 
     try:
-        # 1. Fetch weather markets from CLOB API
+        # 1. Fetch weather markets
         all_markets = fetch_weather_markets()
         record_api_success()  # CLOB API responded
-        # Focus on city_temp markets (our core strategy)
-        markets = [m for m in all_markets if m.get("_weather_type") == "city_temp"]
+        # Focus on city_temp markets (our core strategy) — prioritize open markets
+        all_city_temp = [m for m in all_markets if m.get("_weather_type") == "city_temp"]
+        open_markets_list = [m for m in all_city_temp if m.get("_is_open")]
+        closed_markets_list = [m for m in all_city_temp if not m.get("_is_open")]
+        markets = open_markets_list + (closed_markets_list if INCLUDE_CLOSED_FOR_TEST else [])
         candidates = len(markets)
-        log.info(f"Found {candidates} city_temp candidate markets ({len(all_markets)} total weather)")
+        log.info(f"Found {candidates} city_temp candidates ({len(open_markets_list)} open, "
+                 f"{len(closed_markets_list)} closed, {len(all_markets)} total weather)")
 
-        # Limit: process up to 50 markets for testing, 8 for live
-        max_eval = 50 if INCLUDE_CLOSED_FOR_TEST else 8
+        # Limit: evaluate up to 200 open markets, plus 20 closed for testing
+        max_eval = len(open_markets_list) + (20 if INCLUDE_CLOSED_FOR_TEST else 0)
 
         # Collect token IDs for WebSocket subscription (only open markets)
         open_markets = [m for m in markets[:max_eval] if m.get("_is_open")]
@@ -882,10 +1056,15 @@ async def run_scan():
             if cache_key in forecast_cache:
                 forecast = forecast_cache[cache_key]
             else:
-                forecast = get_best_forecast(city, forecast_date)
+                raw_forecast = get_best_forecast(city, forecast_date)
+                if not raw_forecast:
+                    log.info(f"  Skipped (no forecast): {city} {forecast_date}")
+                    forecast_cache[cache_key] = None
+                    continue
+                # Bayesian update: blend with prior forecast snapshots
+                forecast = get_bayesian_forecast(city, forecast_date, raw_forecast)
                 forecast_cache[cache_key] = forecast
             if not forecast:
-                log.info(f"  Skipped (no forecast): {city} {forecast_date}")
                 continue
 
             fmean = forecast["mean"]
@@ -903,9 +1082,6 @@ async def run_scan():
                 if cached and cached > 0:
                     mkt_price = cached
 
-                if mkt_price <= 0.01 or mkt_price >= 0.99:
-                    continue
-
                 # Parse the temperature range from the full question
                 lo, hi, unit = parse_temp_range(q)
                 if lo is None:
@@ -919,22 +1095,50 @@ async def run_scan():
                 if outcome.lower() == "no":
                     my_p = 1 - my_p
 
-                edge = my_p - mkt_price
-                direction = "YES" if edge > 0 else "NO"
-                true_edge = abs(edge)
+                # ── Longshot tail exploitation ──
+                # Detect overpriced tail bins where ensemble says ~0%
+                tail_bin = is_longshot_tail(lo, hi)
+                signal_type = "edge"  # default
 
-                if true_edge * 100 < MIN_EDGE_PTS:
-                    continue
+                if tail_bin and outcome.lower() == "yes" and mkt_price <= LONGSHOT_MAX_PRICE and my_p <= LONGSHOT_MAX_PROB:
+                    # Overpriced longshot: BUY NO (sell YES equivalent)
+                    direction = "NO"
+                    true_edge = mkt_price - my_p  # how overpriced YES is
+                    mispricing_pct = longshot_mispricing(mkt_price, my_p)
+                    signal_type = "longshot_tail"
 
-                # EV calc
-                if direction == "YES":
-                    ev = my_p * (1 - mkt_price) - (1 - my_p) * mkt_price
+                    if true_edge * 100 < LONGSHOT_MIN_EDGE:
+                        continue
+
+                    ev = (1 - my_p) * mkt_price - my_p * (1 - mkt_price)
+                    bet_size = kelly_bet(my_p, mkt_price, "NO")
+
+                    log.info(f"LONGSHOT: NO on '{q[:55]}' mispricing={mispricing_pct:.0f}% "
+                             f"edge={true_edge*100:.1f}pts mkt={mkt_price:.3f} my_p={my_p:.3f}")
+
+                elif mkt_price <= 0.01 or mkt_price >= 0.99:
+                    continue  # skip illiquid contracts (normal path)
                 else:
-                    wp = 1 - my_p
-                    ev = wp * mkt_price - (1 - wp) * (1 - mkt_price)
+                    # Normal edge detection
+                    edge = my_p - mkt_price
+                    direction = "YES" if edge > 0 else "NO"
+                    true_edge = abs(edge)
 
-                # Kelly sizing
-                bet_size = kelly_bet(my_p, mkt_price, direction)
+                    if true_edge * 100 < MIN_EDGE_PTS:
+                        continue
+
+                    # EV calc
+                    if direction == "YES":
+                        ev = my_p * (1 - mkt_price) - (1 - my_p) * mkt_price
+                    else:
+                        wp = 1 - my_p
+                        ev = wp * mkt_price - (1 - wp) * (1 - mkt_price)
+
+                    bet_size = kelly_bet(my_p, mkt_price, direction)
+
+                # ── Correlated position management ──
+                # Reduce bet if we already have positions on this city+date
+                bet_size = correlated_kelly_adjustment(city, date_str, bet_size)
 
                 sig = {
                     "ts": now, "market": q, "city": city,
@@ -945,7 +1149,7 @@ async def run_scan():
                     "ev_per_10": round(ev * 10, 2), "acted": 0,
                 }
                 db_insert("signals", sig)
-                log.info(f"SIGNAL: {direction} on '{q[:60]}' edge={sig['edge_pts']}pts "
+                log.info(f"SIGNAL [{signal_type}]: {direction} on '{q[:55]}' edge={sig['edge_pts']}pts "
                          f"ev={sig['ev_per_10']} kelly=${bet_size} "
                          f"(forecast: {fmean}°C ±{fstdev}°, range={lo}-{hi}°{unit})")
 
@@ -1309,10 +1513,14 @@ def get_observed_high(city: str, date_str: str) -> Optional[float]:
         log.warning(f"Historical API failed for {city} {date_str}: {e}")
         return None
 
-@app.post("/api/trades/auto-resolve")
-def auto_resolve_trades():
-    """Check unresolved trades against actual observed temperatures and settle P&L."""
+def _do_auto_resolve() -> dict:
+    """Check unresolved trades against actual observed temperatures and settle P&L.
+    Called automatically at the start of each scan cycle (observed data has ~1-2 day lag)
+    and also available via POST /api/trades/auto-resolve."""
     unresolved = db_query("SELECT * FROM trades WHERE resolved = 0")
+    if not unresolved:
+        return {"resolved": 0, "errors": [], "remaining": 0}
+
     resolved_count = 0
     errors = []
 
@@ -1322,6 +1530,14 @@ def auto_resolve_trades():
         if not city or not date_str:
             errors.append({"trade_id": trade["id"], "error": "could not parse market question"})
             continue
+
+        # Only try to resolve trades whose market date is in the past
+        try:
+            market_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            if market_date >= datetime.now().date():
+                continue  # market hasn't resolved yet
+        except:
+            pass
 
         observed_c = get_observed_high(city, date_str)
         if observed_c is None:
@@ -1368,6 +1584,10 @@ def auto_resolve_trades():
         "errors": errors,
         "remaining": len(unresolved) - resolved_count,
     }
+
+@app.post("/api/trades/auto-resolve")
+def auto_resolve_trades():
+    return _do_auto_resolve()
 
 # ── Circuit breaker management ────────────────────────────────────────────────
 @app.get("/api/errors")
