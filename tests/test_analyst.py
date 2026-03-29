@@ -9,8 +9,8 @@ from agents.analyst.claude_client import analyse_signal, screen_news_relevance, 
 
 MOCK_SETTINGS = {
     "analyst": {
-        "sonnet_model": "claude-sonnet-4-6",
-        "haiku_model": "claude-haiku-4-5-20251001",
+        "claude_model": "sonnet",
+        "screener_model": "haiku",
         "min_confidence_to_signal": 0.65,
     },
     "min_edge_by_category": {
@@ -34,15 +34,6 @@ MOCK_MARKET = {
 }
 
 
-def _make_mock_response(result_dict: dict):
-    """Create a mock Anthropic response."""
-    mock_content = MagicMock()
-    mock_content.text = json.dumps(result_dict)
-    mock_response = MagicMock()
-    mock_response.content = [mock_content]
-    return mock_response
-
-
 class TestAnalystOutput:
     def test_analyst_output_schema(self):
         """All required fields present in Claude response."""
@@ -61,10 +52,7 @@ class TestAnalystOutput:
             "data_quality_concern": False,
         }
 
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_mock_response(valid_result)
-
-        with patch("agents.analyst.claude_client._get_client", return_value=mock_client), \
+        with patch("agents.analyst.claude_client._call_claude", return_value=json.dumps(valid_result)), \
              patch("agents.analyst.claude_client._load_settings", return_value=MOCK_SETTINGS):
             result = analyse_signal(
                 market=MOCK_MARKET,
@@ -95,10 +83,7 @@ class TestAnalystOutput:
             "data_quality_concern": False,
         }
 
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_mock_response(low_edge_result)
-
-        with patch("agents.analyst.claude_client._get_client", return_value=mock_client), \
+        with patch("agents.analyst.claude_client._call_claude", return_value=json.dumps(low_edge_result)), \
              patch("agents.analyst.claude_client._load_settings", return_value=MOCK_SETTINGS):
             result = analyse_signal(
                 market=MOCK_MARKET,
@@ -125,10 +110,7 @@ class TestAnalystOutput:
             "data_quality_concern": False,
         }
 
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_mock_response(low_conf_result)
-
-        with patch("agents.analyst.claude_client._get_client", return_value=mock_client), \
+        with patch("agents.analyst.claude_client._call_claude", return_value=json.dumps(low_conf_result)), \
              patch("agents.analyst.claude_client._load_settings", return_value=MOCK_SETTINGS):
             result = analyse_signal(
                 market=MOCK_MARKET,
@@ -149,15 +131,7 @@ class TestAnalystOutput:
         }
         markdown_wrapped = f"```json\n{json.dumps(valid_result)}\n```"
 
-        mock_content = MagicMock()
-        mock_content.text = markdown_wrapped
-        mock_response = MagicMock()
-        mock_response.content = [mock_content]
-
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-
-        with patch("agents.analyst.claude_client._get_client", return_value=mock_client), \
+        with patch("agents.analyst.claude_client._call_claude", return_value=markdown_wrapped), \
              patch("agents.analyst.claude_client._load_settings", return_value=MOCK_SETTINGS):
             result = analyse_signal(
                 market=MOCK_MARKET,
@@ -187,15 +161,7 @@ class TestEdgeThresholds:
 
 class TestNewsScreener:
     def test_screen_returns_market_ids(self):
-        mock_content = MagicMock()
-        mock_content.text = '["market_1", "market_2"]'
-        mock_response = MagicMock()
-        mock_response.content = [mock_content]
-
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-
-        with patch("agents.analyst.claude_client._get_client", return_value=mock_client), \
+        with patch("agents.analyst.claude_client._call_claude", return_value='["market_1", "market_2"]'), \
              patch("agents.analyst.claude_client._load_settings", return_value=MOCK_SETTINGS):
             result = screen_news_relevance(
                 "Breaking: Major policy change",
@@ -204,15 +170,7 @@ class TestNewsScreener:
             assert result == ["market_1", "market_2"]
 
     def test_screen_returns_empty_on_no_match(self):
-        mock_content = MagicMock()
-        mock_content.text = "[]"
-        mock_response = MagicMock()
-        mock_response.content = [mock_content]
-
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = mock_response
-
-        with patch("agents.analyst.claude_client._get_client", return_value=mock_client), \
+        with patch("agents.analyst.claude_client._call_claude", return_value="[]"), \
              patch("agents.analyst.claude_client._load_settings", return_value=MOCK_SETTINGS):
             result = screen_news_relevance("Unrelated headline", [])
             assert result == []

@@ -82,8 +82,8 @@ def validate_env_vars() -> list[str]:
         if not os.getenv("POLYMARKET_FUNDER_ADDRESS"):
             errors.append("POLYMARKET_FUNDER_ADDRESS not set (required for live trading)")
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        errors.append("ANTHROPIC_API_KEY not set (required for analyst agent)")
+    # Analyst uses `claude` CLI (Max subscription) — verify it's available
+    # No ANTHROPIC_API_KEY needed
 
     if not os.getenv("TELEGRAM_BOT_TOKEN"):
         errors.append("TELEGRAM_BOT_TOKEN not set (required for notifications)")

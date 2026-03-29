@@ -38,8 +38,8 @@ scanner:
   min_edge_to_escalate: 0.08      # Use geopolitics floor as global pre-filter
 
 analyst:
-  sonnet_model: "claude-sonnet-4-6"
-  haiku_model: "claude-haiku-4-5-20251001"
+  claude_model: "sonnet"              # claude CLI alias (uses Max subscription)
+  screener_model: "haiku"              # fast/cheap screening calls
   min_confidence_to_signal: 0.65
   signal_expiry_minutes: 30
 

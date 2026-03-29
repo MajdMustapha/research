@@ -1,11 +1,13 @@
 """
-Claude API client for market signal analysis.
-Uses Sonnet for full analysis, Haiku for cheap news screening.
+Claude client for market signal analysis.
+Uses `claude` CLI (Claude Max subscription) instead of API key.
+Sonnet for full analysis, Haiku for cheap news screening.
 """
 
 import json
 import os
 import re
+import subprocess
 
 import yaml
 
@@ -14,11 +16,68 @@ from lib.logger import get_logger
 
 logger = get_logger(__name__)
 
+# JSON schema for structured analyst output
+_ANALYST_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "market_id": {"type": "string"},
+        "signal_valid": {"type": "boolean"},
+        "estimated_true_prob": {"type": "number"},
+        "current_market_prob": {"type": "number"},
+        "edge": {"type": "number"},
+        "confidence": {"type": "number"},
+        "recommended_side": {"type": "string", "enum": ["yes", "no", "none"]},
+        "hold_duration_days": {"type": "integer"},
+        "key_risks": {"type": "array", "items": {"type": "string"}},
+        "reasoning": {"type": "string"},
+        "resolution_rule_concern": {"type": "boolean"},
+        "data_quality_concern": {"type": "boolean"},
+    },
+    "required": [
+        "signal_valid", "estimated_true_prob", "current_market_prob",
+        "edge", "confidence", "recommended_side",
+    ],
+})
 
-def _get_client():
-    """Lazy-load Anthropic client."""
-    import anthropic
-    return anthropic.Anthropic()
+
+def _call_claude(
+    prompt: str,
+    system_prompt: str,
+    model: str = "sonnet",
+    max_tokens: int = 1000,
+    json_schema: str | None = None,
+) -> str:
+    """
+    Call Claude via CLI. Uses Max subscription — no API key needed.
+    Returns raw text output.
+    """
+    cmd = [
+        "claude",
+        "-p", prompt,
+        "--model", model,
+        "--output-format", "text",
+        "--append-system-prompt", system_prompt,
+        "--no-session-persistence",
+        "--bare",
+    ]
+    if json_schema:
+        cmd.extend(["--json-schema", json_schema])
+
+    logger.debug(f"Claude CLI call: model={model}, prompt_len={len(prompt)}")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Claude CLI error (exit {result.returncode}): {result.stderr[:300]}")
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Claude CLI timed out after 120s")
 
 
 def _load_settings() -> dict:
@@ -48,11 +107,11 @@ def analyse_signal(
     """
     Call Claude Sonnet to analyse a market signal.
     Returns parsed analyst output dict.
-    Raises on API error or invalid JSON response.
+    Raises on CLI error or invalid JSON response.
     """
     settings = _load_settings()
     min_edge = get_min_edge_for_market(market, settings)
-    model = settings.get("analyst", {}).get("sonnet_model", "claude-sonnet-4-6")
+    model = settings.get("analyst", {}).get("claude_model", "sonnet")
 
     user_message = f"""
 MARKET:
@@ -78,19 +137,18 @@ Analyse this signal and return JSON only.
 
     logger.info(f"Calling Claude analyst for market: {market.get('id')}")
 
-    client = _get_client()
-    response = client.messages.create(
+    raw = _call_claude(
+        prompt=user_message,
+        system_prompt=ANALYST_SYSTEM_PROMPT,
         model=model,
         max_tokens=1000,
-        system=ANALYST_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
+        json_schema=_ANALYST_SCHEMA,
     )
-
-    raw = response.content[0].text.strip()
 
     try:
         result = json.loads(raw)
     except json.JSONDecodeError:
+        # Strip markdown fences if present
         cleaned = re.sub(r"```json|```", "", raw).strip()
         result = json.loads(cleaned)
 
@@ -115,34 +173,30 @@ Analyse this signal and return JSON only.
 
 def screen_news_relevance(headline: str, markets: list[dict]) -> list[str]:
     """
-    Fast, cheap Haiku call to check if news affects any tracked market.
+    Fast Haiku call to check if news affects any tracked market.
     Returns list of relevant market IDs.
     """
     settings = _load_settings()
-    model = settings.get("analyst", {}).get("haiku_model", "claude-haiku-4-5-20251001")
+    model = settings.get("analyst", {}).get("screener_model", "haiku")
 
     market_list = "\n".join(
         [f"- {m['id']}: {m['question']}" for m in markets[:30]]
     )
 
-    client = _get_client()
-    response = client.messages.create(
-        model=model,
-        max_tokens=200,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"Headline: {headline}\n\n"
-                    f"Markets:\n{market_list}\n\n"
-                    "Which market IDs are affected? Output JSON array only."
-                ),
-            }
-        ],
-        system=HAIKU_SCREENER_PROMPT,
+    prompt = (
+        f"Headline: {headline}\n\n"
+        f"Markets:\n{market_list}\n\n"
+        "Which market IDs are affected? Output JSON array only."
     )
 
     try:
-        return json.loads(response.content[0].text.strip())
-    except (json.JSONDecodeError, IndexError):
+        raw = _call_claude(
+            prompt=prompt,
+            system_prompt=HAIKU_SCREENER_PROMPT,
+            model=model,
+            max_tokens=200,
+        )
+        return json.loads(raw)
+    except (json.JSONDecodeError, RuntimeError) as e:
+        logger.warning(f"News screener failed: {e}")
         return []
