@@ -111,6 +111,7 @@ def init_db():
         status      TEXT,
         tx_hash     TEXT,
         order_type  TEXT DEFAULT 'taker',
+        market_slug TEXT,
         resolved    INTEGER DEFAULT 0,
         pnl         REAL
     );
@@ -133,6 +134,7 @@ def init_db():
         direction   TEXT,
         edge_pts    REAL,
         ev_per_10   REAL,
+        market_slug TEXT,
         acted       INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS backtest_runs (
@@ -1162,13 +1164,16 @@ async def run_scan():
                 # Reduce bet if we already have positions on this city+date
                 bet_size = correlated_kelly_adjustment(city, date_str, bet_size)
 
+                slug = market.get("slug") or ""
+
                 sig = {
                     "ts": now, "market": q, "city": city,
                     "forecast_c": fmean, "ensemble_spread": fstdev,
                     "market_price": mkt_price,
                     "outcome": outcome, "direction": direction,
                     "edge_pts": round(true_edge * 100, 1),
-                    "ev_per_10": round(ev * 10, 2), "acted": 0,
+                    "ev_per_10": round(ev * 10, 2),
+                    "market_slug": slug, "acted": 0,
                 }
                 db_insert("signals", sig)
                 log.info(f"SIGNAL [{signal_type}]: {direction} on '{q[:55]}' edge={sig['edge_pts']}pts "
@@ -1196,6 +1201,7 @@ async def run_scan():
                     "edge_pts": sig["edge_pts"], "ev_per_10": sig["ev_per_10"],
                     "bet_usdc": bet_size, "kelly_frac": round(KELLY_FRACTION, 2),
                     "status": status, "order_type": order_type,
+                    "market_slug": slug,
                     "tx_hash": tx_hash, "resolved": 0, "pnl": None,
                 }
                 db_insert("trades", trade)
@@ -1252,6 +1258,8 @@ async def run_scan():
 
                 bet_size = kelly_bet(my_p, mkt_price, direction)
 
+                slug = market.get("slug") or ""
+
                 sig = {
                     "ts": now, "market": q, "city": "GLOBAL",
                     "forecast_c": eval_result["current_estimate"],
@@ -1259,7 +1267,8 @@ async def run_scan():
                     "market_price": mkt_price,
                     "outcome": outcome, "direction": direction,
                     "edge_pts": round(true_edge * 100, 1),
-                    "ev_per_10": round(ev * 10, 2), "acted": 0,
+                    "ev_per_10": round(ev * 10, 2),
+                    "market_slug": slug, "acted": 0,
                 }
                 db_insert("signals", sig)
                 log.info(f"SIGNAL [global]: {direction} on '{q[:60]}' edge={sig['edge_pts']}pts "
@@ -1283,6 +1292,7 @@ async def run_scan():
                     "edge_pts": sig["edge_pts"], "ev_per_10": sig["ev_per_10"],
                     "bet_usdc": bet_size, "kelly_frac": round(KELLY_FRACTION, 2),
                     "status": status, "order_type": order_type,
+                    "market_slug": slug,
                     "tx_hash": tx_hash, "resolved": 0, "pnl": None,
                 }
                 db_insert("trades", trade)
@@ -1685,6 +1695,48 @@ def _do_auto_resolve() -> dict:
 @app.post("/api/trades/auto-resolve")
 def auto_resolve_trades():
     return _do_auto_resolve()
+
+@app.get("/api/resolutions")
+def get_resolutions():
+    """Show observed temperatures and resolution status for all active trades."""
+    trades = db_query("SELECT * FROM trades ORDER BY id DESC LIMIT 50")
+    results = []
+    for t in trades:
+        city, date_str, unit = parse_city_temp_market(t["market"])
+        lo, hi, runit = parse_temp_range(t["market"])
+        obs_c = None
+        obs_display = None
+        outcome_str = "pending"
+
+        if city and date_str:
+            obs_c = get_observed_high(city, date_str)
+            if obs_c is not None:
+                if runit == "F":
+                    obs_display = f"{c_to_f(obs_c):.1f}°F ({obs_c:.1f}°C)"
+                    in_range = lo <= c_to_f(obs_c) <= hi
+                else:
+                    obs_display = f"{obs_c:.1f}°C"
+                    in_range = lo <= obs_c <= hi
+                won = (t["direction"] == "YES" and in_range) or (t["direction"] == "NO" and not in_range)
+                outcome_str = "WIN" if won else "LOSS"
+
+        results.append({
+            "trade_id": t["id"],
+            "market": t["market"],
+            "city": city,
+            "date": date_str,
+            "direction": t["direction"],
+            "market_price": t["market_price"],
+            "my_prob": t["my_prob"],
+            "bet_usdc": t["bet_usdc"],
+            "range": f"{lo}-{hi}°{runit}" if lo is not None else None,
+            "observed": obs_display,
+            "outcome": outcome_str,
+            "resolved": bool(t["resolved"]),
+            "pnl": t["pnl"],
+            "slug": t.get("market_slug"),
+        })
+    return results
 
 # ── Circuit breaker management ────────────────────────────────────────────────
 @app.get("/api/errors")

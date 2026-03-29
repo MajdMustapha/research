@@ -346,11 +346,12 @@ function fmtPnl(v) {
 
 // ── Nav ────────────────────────────────────────────────────────────────────────
 const NAV = [
-  { id:'overview', icon:'◉', label:'Overview' },
-  { id:'signals',  icon:'◈', label:'Signals' },
-  { id:'trades',   icon:'◆', label:'Trades' },
-  { id:'log',      icon:'▣', label:'Activity Log' },
-  { id:'config',   icon:'◧', label:'Config' },
+  { id:'overview',     icon:'◉', label:'Overview' },
+  { id:'signals',      icon:'◈', label:'Signals' },
+  { id:'trades',       icon:'◆', label:'Trades' },
+  { id:'resolutions',  icon:'◇', label:'Resolutions' },
+  { id:'log',          icon:'▣', label:'Activity Log' },
+  { id:'config',       icon:'◧', label:'Config' },
 ];
 
 // ── Stats bar ─────────────────────────────────────────────────────────────────
@@ -466,7 +467,14 @@ function Signals({ signals }) {
                 <tr key={s.id}>
                   <td className="mono">{fmtTs(s.ts)}</td>
                   <td style={{color:'var(--accent2)',fontWeight:700}}>{s.city}</td>
-                  <td style={{maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11,color:'var(--muted)'}}>{s.market}</td>
+                  <td style={{maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11}}>
+                    {s.market_slug ? (
+                      <a href={`https://polymarket.com/event/${s.market_slug}`} target="_blank" rel="noopener"
+                         style={{color:'var(--muted)',textDecoration:'none',borderBottom:'1px dashed var(--border)'}}>
+                        {s.market}
+                      </a>
+                    ) : <span style={{color:'var(--muted)'}}>{s.market}</span>}
+                  </td>
                   <td className="mono">{s.outcome}</td>
                   <td><span className={`badge ${s.direction === 'YES' ? 'yes' : 'no'}`}>{s.direction}</span></td>
                   <td className="mono" style={{color:'var(--warn)'}}>{s.forecast_c}°C</td>
@@ -508,7 +516,14 @@ function Trades({ trades, onResolve }) {
                 <tr key={t.id}>
                   <td className="mono" style={{color:'var(--muted)'}}>{t.id}</td>
                   <td className="mono">{fmtTs(t.ts)}</td>
-                  <td style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11,color:'var(--muted)'}}>{t.market}</td>
+                  <td style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11}}>
+                    {t.market_slug ? (
+                      <a href={`https://polymarket.com/event/${t.market_slug}`} target="_blank" rel="noopener"
+                         style={{color:'var(--muted)',textDecoration:'none',borderBottom:'1px dashed var(--border)'}}>
+                        {t.market}
+                      </a>
+                    ) : <span style={{color:'var(--muted)'}}>{t.market}</span>}
+                  </td>
                   <td><span className={`badge ${t.direction === 'YES' ? 'yes' : 'no'}`}>{t.direction}</span></td>
                   <td className="mono">${fmt(t.market_price)}</td>
                   <td className="mono" style={{color:'var(--warn)'}}>{fmt(t.my_prob,3)}</td>
@@ -634,6 +649,67 @@ function Config({ config }) {
   );
 }
 
+// ── Resolutions tab ──────────────────────────────────────────────────────────
+function Resolutions({ resolutions }) {
+  if (!resolutions) return <div className="empty">Loading...</div>;
+  const wins = resolutions.filter(r => r.outcome === 'WIN').length;
+  const losses = resolutions.filter(r => r.outcome === 'LOSS').length;
+  const pending = resolutions.filter(r => r.outcome === 'pending').length;
+
+  return (
+    <div>
+      <p className="section-title">TRADE RESOLUTIONS — observed vs forecast</p>
+      <div className="stats-grid" style={{marginBottom:20}}>
+        <StatCard label="Wins" value={wins} color="green" sub="correct calls" />
+        <StatCard label="Losses" value={losses} color="red" sub="missed" />
+        <StatCard label="Pending" value={pending} color="purple" sub="awaiting data" />
+        <StatCard label="Accuracy" value={wins+losses > 0 ? `${((wins/(wins+losses))*100).toFixed(0)}%` : '—'} color="orange" sub="of resolved" />
+      </div>
+      <div className="table-wrap">
+        {resolutions.length === 0 ? <div className="empty">NO TRADES TO RESOLVE</div> : (
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th><th>City</th><th>Date</th><th>Dir</th><th>Range</th>
+                <th>Observed</th><th>Result</th><th>Bet</th><th>P&L</th><th>Market</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resolutions.map(r => (
+                <tr key={r.trade_id}>
+                  <td className="mono" style={{color:'var(--muted)'}}>{r.trade_id}</td>
+                  <td style={{color:'var(--accent2)',fontWeight:700}}>{r.city || '—'}</td>
+                  <td className="mono">{r.date || '—'}</td>
+                  <td><span className={`badge ${r.direction === 'YES' ? 'yes' : 'no'}`}>{r.direction}</span></td>
+                  <td className="mono" style={{fontSize:11}}>{r.range || '—'}</td>
+                  <td className="mono" style={{color: r.observed ? 'var(--warn)' : 'var(--muted)', fontWeight:700}}>
+                    {r.observed || 'pending'}
+                  </td>
+                  <td>
+                    <span className={`badge ${r.outcome === 'WIN' ? 'yes' : r.outcome === 'LOSS' ? 'no' : 'dry'}`}>
+                      {r.outcome}
+                    </span>
+                  </td>
+                  <td className="mono">${fmt(r.bet_usdc)}</td>
+                  <td>{fmtPnl(r.pnl)}</td>
+                  <td>
+                    {r.slug ? (
+                      <a href={`https://polymarket.com/event/${r.slug}`} target="_blank" rel="noopener"
+                         className="btn ghost" style={{padding:'3px 8px',fontSize:9,textDecoration:'none'}}>
+                        View
+                      </a>
+                    ) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Root App ──────────────────────────────────────────────────────────────────
 function App() {
   const [tab,     setTab]     = useState('overview');
@@ -643,19 +719,21 @@ function App() {
   const [signals, setSignals] = useState([]);
   const [scans,   setScans]   = useState([]);
   const [config,  setConfig]  = useState(null);
+  const [resolutions, setResolutions] = useState(null);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [st, sta, tr, si, sc, cf] = await Promise.all([
+      const [st, sta, tr, si, sc, cf, res] = await Promise.all([
         fetch(`${API}/status`).then(r=>r.json()),
         fetch(`${API}/stats`).then(r=>r.json()),
         fetch(`${API}/trades`).then(r=>r.json()),
         fetch(`${API}/signals`).then(r=>r.json()),
         fetch(`${API}/scans`).then(r=>r.json()),
         fetch(`${API}/config`).then(r=>r.json()),
+        fetch(`${API}/resolutions`).then(r=>r.json()),
       ]);
       setStatus(st); setStats(sta); setTrades(tr);
-      setSignals(si); setScans(sc); setConfig(cf);
+      setSignals(si); setScans(sc); setConfig(cf); setResolutions(res);
     } catch(e) { /* backend not up yet */ }
   }, []);
 
@@ -722,6 +800,7 @@ function App() {
           {tab === 'overview' && <Overview stats={stats} status={status} onTrigger={triggerScan} />}
           {tab === 'signals'  && <Signals signals={signals} />}
           {tab === 'trades'   && <Trades trades={trades} onResolve={resolveTrade} />}
+          {tab === 'resolutions' && <Resolutions resolutions={resolutions} />}
           {tab === 'log'      && <ActivityLog scans={scans} signals={signals} />}
           {tab === 'config'   && <Config config={config} />}
         </main>
