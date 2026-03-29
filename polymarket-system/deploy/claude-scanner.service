@@ -1,0 +1,17 @@
+[Unit]
+Description=Claude Code — Polymarket autonomous scanner
+After=network.target polybot.service
+Requires=polybot.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/research/polymarket-system
+Environment=HOME=/home/ubuntu
+ExecStartPre=/bin/sleep 15
+ExecStart=/home/ubuntu/.local/bin/claude --agent polymarket-trader --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch" "Run continuous scan cycles: trigger a scan via POST /api/scan/trigger every 60 minutes, check results, and report any signals or trades. Loop indefinitely."
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
