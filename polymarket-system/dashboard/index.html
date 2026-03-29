@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Syne+Mono&family=Syne:wght@400;700;800&display=swap');
 
@@ -79,6 +80,8 @@
   .pill.scan   { border-color: var(--accent); color: var(--accent); background: rgba(0,255,136,.1); animation: pulse 1s infinite; }
   .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .btn.primary:disabled .spinner { display:inline-block; animation: spin 1s linear infinite; }
 
   /* Layout */
   .layout { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 53px); }
@@ -197,6 +200,22 @@
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: rgba(255,255,255,.02); }
   .mono { font-family: var(--mono); font-size: 11px; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--accent); }
+  th .sort-arrow { margin-left: 4px; font-size: 8px; }
+  .filter-bar {
+    display: flex; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border);
+    flex-wrap: wrap; align-items: center;
+  }
+  .filter-bar input, .filter-bar select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); font-family: var(--mono); font-size: 11px;
+    padding: 5px 8px; outline: none;
+  }
+  .filter-bar input:focus, .filter-bar select:focus { border-color: var(--accent); }
+  .filter-bar input { flex: 1; min-width: 140px; }
+  .filter-bar select { min-width: 80px; }
+  .filter-bar label { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
 
   /* Badges */
   .badge {
@@ -316,6 +335,54 @@
     color: var(--muted); font-family: var(--mono); font-size: 12px;
     letter-spacing: 2px;
   }
+
+  /* Charts */
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .chart-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px; position: relative;
+  }
+  .chart-card canvas { max-height: 260px; }
+  .chart-title {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 2px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 12px;
+  }
+  .chart-full { grid-column: 1 / -1; }
+  .city-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .city-chip {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-family: var(--mono); font-size: 11px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .city-chip .city-name { color: var(--accent2); font-weight: 700; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .city-chip .city-stat { color: var(--muted); font-size: 9px; letter-spacing: 1px; }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before {
+    content: ''; position: absolute; left: 8px; top: 0; bottom: 0;
+    width: 1px; background: var(--border);
+  }
+  .tl-item { position: relative; padding: 8px 0 16px 16px; }
+  .tl-item::before {
+    content: ''; position: absolute; left: -20px; top: 12px;
+    width: 8px; height: 8px; border-radius: 50%;
+    border: 2px solid var(--border); background: var(--bg);
+  }
+  .tl-item.scan::before { border-color: var(--accent2); background: rgba(123,97,255,.3); }
+  .tl-item.signal::before { border-color: var(--accent); background: rgba(0,255,136,.3); }
+  .tl-item.trade::before { border-color: var(--warn); background: rgba(255,107,53,.3); }
+  .tl-time { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+  .tl-msg { font-size: 12px; line-height: 1.4; }
+  .tl-msg .tl-city { color: var(--accent2); font-weight: 700; }
+  .tl-msg .tl-edge { color: var(--accent); font-family: var(--mono); }
+  .tl-msg .tl-dir { font-family: var(--mono); font-weight: 700; }
+  .tl-msg .tl-dir.yes { color: var(--green); }
+  .tl-msg .tl-dir.no { color: var(--red); }
+
+  @media (max-width: 768px) {
+    .chart-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -338,6 +405,24 @@ function fmtTs(ts) {
   if (!ts) return '—';
   return new Date(ts).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 }
+function eventSlug(slug) {
+  if (!slug) return slug;
+  // Strip temperature condition suffix after the year to get the event-level slug
+  // e.g. "highest-temperature-in-seoul-on-march-29-2026-14c" → "highest-temperature-in-seoul-on-march-29-2026"
+  return slug.replace(/(-\d{4})-.*$/, '$1');
+}
+function fmtCountdown(dateStr) {
+  if (!dateStr) return '—';
+  // Market resolves at end of day UTC for the given date
+  const end = new Date(dateStr + 'T23:59:59Z');
+  const now = new Date();
+  const diff = end - now;
+  if (diff <= 0) return 'closed';
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  if (h >= 24) return `${Math.floor(h/24)}d ${h%24}h`;
+  return `${h}h ${m}m`;
+}
 function fmtPnl(v) {
   if (v == null) return <span style={{color:'var(--muted)'}}>pending</span>;
   const c = v >= 0 ? 'var(--green)' : 'var(--red)';
@@ -346,11 +431,12 @@ function fmtPnl(v) {
 
 // ── Nav ────────────────────────────────────────────────────────────────────────
 const NAV = [
-  { id:'overview', icon:'◉', label:'Overview' },
-  { id:'signals',  icon:'◈', label:'Signals' },
-  { id:'trades',   icon:'◆', label:'Trades' },
-  { id:'log',      icon:'▣', label:'Activity Log' },
-  { id:'config',   icon:'◧', label:'Config' },
+  { id:'overview',   icon:'◉', label:'Overview' },
+  { id:'signals',    icon:'◈', label:'Signals' },
+  { id:'trades',     icon:'◆', label:'Trades' },
+  { id:'analytics',  icon:'◐', label:'Analytics' },
+  { id:'log',        icon:'▣', label:'Activity Log' },
+  { id:'config',     icon:'◧', label:'Config' },
 ];
 
 // ── Stats bar ─────────────────────────────────────────────────────────────────
@@ -384,7 +470,7 @@ function StatusPill({ running, mode }) {
 }
 
 // ── Overview tab ──────────────────────────────────────────────────────────────
-function Overview({ stats, status, onTrigger }) {
+function Overview({ stats, status, onTrigger, scanning }) {
   const [countdown, setCountdown] = useState('');
   useEffect(() => {
     if (!status?.next_scan) return;
@@ -438,37 +524,96 @@ function Overview({ stats, status, onTrigger }) {
 
       <button
         className="btn primary"
-        disabled={status?.running}
+        disabled={status?.running || scanning}
         onClick={onTrigger}
+        style={scanning ? {opacity:0.7} : {}}
       >
-        {status?.running ? '⟳ Scanning…' : '▶ Trigger Scan Now'}
+        {scanning || status?.running
+          ? <><span className="spinner">⟳</span> Scanning…</>
+          : '▶ Trigger Scan Now'}
       </button>
     </div>
   );
 }
 
+// ── Sort helper ──────────────────────────────────────────────────────────────
+function useSort(defaultKey, defaultDir='desc') {
+  const [sortKey, setSortKey] = useState(defaultKey);
+  const [sortDir, setSortDir] = useState(defaultDir);
+  const toggle = (key) => {
+    if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+  const arrow = (key) => key === sortKey ? (sortDir === 'asc' ? '▲' : '▼') : '';
+  const sortFn = (a, b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    if (va == null) va = '';
+    if (vb == null) vb = '';
+    if (typeof va === 'string') { va = va.toLowerCase(); vb = (vb+'').toLowerCase(); }
+    if (va < vb) return sortDir === 'asc' ? -1 : 1;
+    if (va > vb) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  };
+  return { sortKey, sortDir, toggle, arrow, sortFn };
+}
+
+function SortTh({ k, label, sort }) {
+  return (
+    <th className="sortable" onClick={() => sort.toggle(k)}>
+      {label}<span className="sort-arrow">{sort.arrow(k)}</span>
+    </th>
+  );
+}
+
 // ── Signals tab ───────────────────────────────────────────────────────────────
 function Signals({ signals }) {
+  const [filter, setFilter] = useState('');
+  const [dirFilter, setDirFilter] = useState('');
+  const sort = useSort('id');
+
+  const filtered = signals.filter(s => {
+    if (filter && !(s.market||'').toLowerCase().includes(filter.toLowerCase())
+        && !(s.city||'').toLowerCase().includes(filter.toLowerCase())) return false;
+    if (dirFilter && s.direction !== dirFilter) return false;
+    return true;
+  }).sort(sort.sortFn);
+
   return (
     <div>
-      <p className="section-title">LIVE SIGNALS — last 100</p>
+      <p className="section-title">LIVE SIGNALS — {filtered.length} of {signals.length}</p>
       <div className="table-wrap">
-        {signals.length === 0 ? <div className="empty">NO SIGNALS YET — RUN A SCAN</div> : (
+        <div className="filter-bar">
+          <label>Filter</label>
+          <input placeholder="Search market or city…" value={filter} onChange={e => setFilter(e.target.value)} />
+          <select value={dirFilter} onChange={e => setDirFilter(e.target.value)}>
+            <option value="">All dirs</option>
+            <option value="YES">YES</option>
+            <option value="NO">NO</option>
+          </select>
+        </div>
+        {filtered.length === 0 ? <div className="empty">NO SIGNALS MATCH</div> : (
           <table>
             <thead>
               <tr>
-                <th>Time</th><th>City</th><th>Market</th><th>Outcome</th>
-                <th>Direction</th><th>Forecast</th><th>Mkt Price</th><th>Edge</th><th>EV/10</th>
+                <SortTh k="ts" label="Time" sort={sort} />
+                <SortTh k="city" label="City" sort={sort} />
+                <SortTh k="market" label="Market" sort={sort} />
+                <th>Outcome</th>
+                <SortTh k="direction" label="Direction" sort={sort} />
+                <SortTh k="forecast_c" label="Forecast" sort={sort} />
+                <SortTh k="market_price" label="Mkt Price" sort={sort} />
+                <SortTh k="edge_pts" label="Edge" sort={sort} />
+                <SortTh k="ev_per_10" label="EV/10" sort={sort} />
               </tr>
             </thead>
             <tbody>
-              {signals.map(s => (
+              {filtered.map(s => (
                 <tr key={s.id}>
                   <td className="mono">{fmtTs(s.ts)}</td>
-                  <td style={{color:'var(--accent2)',fontWeight:700}}>{s.city}</td>
-                  <td style={{maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11}}>
+                  <td style={{color:'var(--accent2)',fontWeight:700,whiteSpace:'nowrap'}}>{s.city}</td>
+                  <td style={{fontSize:11,whiteSpace:'normal',wordBreak:'break-word',minWidth:220}}>
                     {s.market_slug ? (
-                      <a href={`https://polymarket.com/event/${s.market_slug}`} target="_blank" rel="noopener"
+                      <a href={`https://polymarket.com/event/${eventSlug(s.market_slug)}`} target="_blank" rel="noopener"
                          style={{color:'var(--muted)',textDecoration:'none',borderBottom:'1px dashed var(--border)'}}>
                         {s.market}
                       </a>
@@ -496,32 +641,70 @@ function Signals({ signals }) {
 function Trades({ trades, resolutions, onResolve }) {
   const [resolveId, setResolveId] = useState(null);
   const [pnlInput, setPnlInput] = useState('');
+  const [filter, setFilter] = useState('');
+  const [dirFilter, setDirFilter] = useState('');
+  const [resultFilter, setResultFilter] = useState('');
+  const sort = useSort('id');
 
   // Build lookup from resolutions
   const resMap = {};
   (resolutions || []).forEach(r => { resMap[r.trade_id] = r; });
 
+  const filtered = trades.filter(t => {
+    if (filter && !(t.market||'').toLowerCase().includes(filter.toLowerCase())) return false;
+    if (dirFilter && t.direction !== dirFilter) return false;
+    if (resultFilter) {
+      const outcome = resMap[t.id]?.outcome || 'pending';
+      if (resultFilter === 'pending' && outcome !== 'pending') return false;
+      if (resultFilter === 'WIN' && outcome !== 'WIN') return false;
+      if (resultFilter === 'LOSS' && outcome !== 'LOSS') return false;
+    }
+    return true;
+  }).sort(sort.sortFn);
+
   return (
     <div>
-      <p className="section-title">TRADE LOG</p>
+      <p className="section-title">TRADE LOG — {filtered.length} of {trades.length}</p>
       <div className="table-wrap">
-        {trades.length === 0 ? <div className="empty">NO TRADES YET</div> : (
+        <div className="filter-bar">
+          <label>Filter</label>
+          <input placeholder="Search market…" value={filter} onChange={e => setFilter(e.target.value)} />
+          <select value={dirFilter} onChange={e => setDirFilter(e.target.value)}>
+            <option value="">All dirs</option>
+            <option value="YES">YES</option>
+            <option value="NO">NO</option>
+          </select>
+          <select value={resultFilter} onChange={e => setResultFilter(e.target.value)}>
+            <option value="">All results</option>
+            <option value="WIN">WIN</option>
+            <option value="LOSS">LOSS</option>
+            <option value="pending">Pending</option>
+          </select>
+        </div>
+        {filtered.length === 0 ? <div className="empty">NO TRADES MATCH</div> : (
           <table>
             <thead>
               <tr>
-                <th>ID</th><th>Time</th><th>Market</th>
-                <th>Dir</th><th>Entry</th><th>My Prob</th><th>Bet</th><th>Edge</th>
-                <th>Observed</th><th>Result</th><th>P&L</th>
+                <SortTh k="id" label="ID" sort={sort} />
+                <SortTh k="ts" label="Time" sort={sort} />
+                <SortTh k="market" label="Market" sort={sort} />
+                <SortTh k="direction" label="Dir" sort={sort} />
+                <SortTh k="market_price" label="Entry" sort={sort} />
+                <SortTh k="my_prob" label="My Prob" sort={sort} />
+                <SortTh k="bet_usdc" label="Bet" sort={sort} />
+                <SortTh k="edge_pts" label="Edge" sort={sort} />
+                <th>Closes</th><th>Observed</th><th>Result</th>
+                <SortTh k="pnl" label="P&L" sort={sort} />
               </tr>
             </thead>
             <tbody>
-              {trades.map(t => (
+              {filtered.map(t => (
                 <tr key={t.id}>
                   <td className="mono" style={{color:'var(--muted)'}}>{t.id}</td>
                   <td className="mono">{fmtTs(t.ts)}</td>
-                  <td style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:11}}>
+                  <td style={{fontSize:11,whiteSpace:'normal',wordBreak:'break-word',minWidth:250}}>
                     {t.market_slug ? (
-                      <a href={`https://polymarket.com/event/${t.market_slug}`} target="_blank" rel="noopener"
+                      <a href={`https://polymarket.com/event/${eventSlug(t.market_slug)}`} target="_blank" rel="noopener"
                          style={{color:'var(--muted)',textDecoration:'none',borderBottom:'1px dashed var(--border)'}}>
                         {t.market}
                       </a>
@@ -532,6 +715,9 @@ function Trades({ trades, resolutions, onResolve }) {
                   <td className="mono" style={{color:'var(--warn)'}}>{fmt(t.my_prob,3)}</td>
                   <td className="mono">${fmt(t.bet_usdc)}</td>
                   <td><EdgeBar pts={t.edge_pts} /></td>
+                  <td className="mono" style={{fontSize:11, color: fmtCountdown(resMap[t.id]?.date) === 'closed' ? 'var(--green)' : 'var(--accent2)'}}>
+                    {fmtCountdown(resMap[t.id]?.date)}
+                  </td>
                   <td className="mono" style={{color: resMap[t.id]?.observed ? 'var(--warn)' : 'var(--muted)', fontSize:11, fontWeight:700}}>
                     {resMap[t.id]?.observed || '—'}
                   </td>
@@ -628,10 +814,341 @@ function Config({ config }) {
   );
 }
 
+// ── Chart wrapper (Chart.js + React) ─────────────────────────────────────
+function ChartCanvas({ type, data, options, style }) {
+  const ref = useRef(null);
+  const chartRef = useRef(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    if (chartRef.current) chartRef.current.destroy();
+    const ctx = ref.current.getContext('2d');
+    chartRef.current = new Chart(ctx, { type, data, options });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [type, JSON.stringify(data), JSON.stringify(options)]);
+  return <canvas ref={ref} style={style} />;
+}
+
+// ── Analytics tab ────────────────────────────────────────────────────────
+function Analytics({ trades, signals, resolutions, scans }) {
+  const resMap = {};
+  (resolutions || []).forEach(r => { resMap[r.trade_id] = r; });
+
+  // --- P&L over time (cumulative) ---
+  const sortedTrades = [...trades].sort((a,b) => new Date(a.ts) - new Date(b.ts));
+  let cumPnl = 0;
+  const pnlData = sortedTrades.map(t => {
+    const res = resMap[t.id];
+    const pnl = t.pnl != null ? t.pnl : (res?.pnl != null ? res.pnl : null);
+    if (pnl != null) cumPnl += pnl;
+    return {
+      x: new Date(t.ts).toLocaleDateString('en-GB', {day:'2-digit',month:'short'}),
+      y: cumPnl,
+      pnl,
+      settled: pnl != null
+    };
+  });
+
+  // Even if no P&L yet, show bet exposure over time
+  let cumBet = 0;
+  const exposureData = sortedTrades.map(t => {
+    cumBet += t.bet_usdc || 0;
+    return {
+      x: new Date(t.ts).toLocaleDateString('en-GB', {day:'2-digit',month:'short'}),
+      y: cumBet
+    };
+  });
+
+  const pnlChartData = {
+    labels: pnlData.map(d => d.x),
+    datasets: [
+      {
+        label: 'Cumulative P&L ($)',
+        data: pnlData.map(d => d.y),
+        borderColor: '#00ff88',
+        backgroundColor: 'rgba(0,255,136,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointBackgroundColor: pnlData.map(d => d.settled ? '#00ff88' : '#6b6b85'),
+        borderWidth: 2,
+      },
+      {
+        label: 'Cumulative Exposure ($)',
+        data: exposureData.map(d => d.y),
+        borderColor: '#7b61ff',
+        backgroundColor: 'rgba(123,97,255,0.08)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 2,
+        borderWidth: 1,
+        borderDash: [4, 4],
+      }
+    ]
+  };
+
+  const pnlChartOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#6b6b85', font: { family: "'Syne Mono', monospace", size: 10 } } },
+    },
+    scales: {
+      x: { ticks: { color: '#6b6b85', font: { family: "'Syne Mono'", size: 9 } }, grid: { color: 'rgba(30,30,48,0.8)' } },
+      y: { ticks: { color: '#6b6b85', font: { family: "'Syne Mono'", size: 9 }, callback: v => '$'+v }, grid: { color: 'rgba(30,30,48,0.8)' } }
+    }
+  };
+
+  // --- Edge scatter: edge_pts vs outcome ---
+  const scatterPoints = trades.map(t => {
+    const res = resMap[t.id];
+    const outcome = res?.outcome || (t.pnl != null ? (t.pnl >= 0 ? 'WIN' : 'LOSS') : 'pending');
+    return { x: t.edge_pts, y: t.my_prob, outcome, city: res?.city || '?', bet: t.bet_usdc };
+  });
+
+  const edgeChartData = {
+    datasets: [
+      {
+        label: 'WIN',
+        data: scatterPoints.filter(p => p.outcome === 'WIN').map(p => ({x: p.x, y: p.y})),
+        backgroundColor: 'rgba(0,255,136,0.7)',
+        pointRadius: 6,
+      },
+      {
+        label: 'LOSS',
+        data: scatterPoints.filter(p => p.outcome === 'LOSS').map(p => ({x: p.x, y: p.y})),
+        backgroundColor: 'rgba(255,59,92,0.7)',
+        pointRadius: 6,
+      },
+      {
+        label: 'Pending',
+        data: scatterPoints.filter(p => p.outcome === 'pending').map(p => ({x: p.x, y: p.y})),
+        backgroundColor: 'rgba(123,97,255,0.5)',
+        pointRadius: 5,
+      }
+    ]
+  };
+
+  const edgeChartOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#6b6b85', font: { family: "'Syne Mono', monospace", size: 10 } } },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const p = scatterPoints[ctx.dataIndex];
+            return `Edge: ${ctx.parsed.x.toFixed(1)}pt  Prob: ${ctx.parsed.y.toFixed(3)}`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: { title: { display: true, text: 'Edge (pts)', color: '#6b6b85', font: { family: "'Syne Mono'", size: 10 } }, ticks: { color: '#6b6b85', font: { family: "'Syne Mono'", size: 9 } }, grid: { color: 'rgba(30,30,48,0.8)' } },
+      y: { title: { display: true, text: 'My Probability', color: '#6b6b85', font: { family: "'Syne Mono'", size: 10 } }, ticks: { color: '#6b6b85', font: { family: "'Syne Mono'", size: 9 } }, grid: { color: 'rgba(30,30,48,0.8)' }, min: 0, max: 1 }
+    }
+  };
+
+  // --- Edge distribution histogram ---
+  const edgeBuckets = [15, 20, 25, 30, 35, 40, 45, 50];
+  const edgeCounts = edgeBuckets.map((b, i) => {
+    const lo = b;
+    const hi = i < edgeBuckets.length - 1 ? edgeBuckets[i+1] : 100;
+    return trades.filter(t => t.edge_pts >= lo && t.edge_pts < hi).length;
+  });
+
+  const histData = {
+    labels: edgeBuckets.map((b,i) => i < edgeBuckets.length-1 ? `${b}-${edgeBuckets[i+1]}` : `${b}+`),
+    datasets: [{
+      label: 'Trades',
+      data: edgeCounts,
+      backgroundColor: 'rgba(0,255,136,0.3)',
+      borderColor: '#00ff88',
+      borderWidth: 1,
+      borderRadius: 4,
+    }]
+  };
+
+  const histOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { title: { display: true, text: 'Edge Range (pts)', color: '#6b6b85', font: { family: "'Syne Mono'", size: 10 } }, ticks: { color: '#6b6b85', font: { family: "'Syne Mono'", size: 9 } }, grid: { color: 'rgba(30,30,48,0.8)' } },
+      y: { title: { display: true, text: 'Count', color: '#6b6b85', font: { family: "'Syne Mono'", size: 10 } }, ticks: { color: '#6b6b85', font: { family: "'Syne Mono'", size: 9 }, stepSize: 1 }, grid: { color: 'rgba(30,30,48,0.8)' } }
+    }
+  };
+
+  // --- City breakdown ---
+  const cityStats = {};
+  trades.forEach(t => {
+    const res = resMap[t.id];
+    const city = res?.city || (t.market.match(/in ([A-Z][a-zA-Z\s]+?) (?:be|on)/)?.[1]) || '?';
+    if (!cityStats[city]) cityStats[city] = { trades: 0, bet: 0, wins: 0, losses: 0, pending: 0 };
+    cityStats[city].trades++;
+    cityStats[city].bet += t.bet_usdc || 0;
+    const outcome = res?.outcome || 'pending';
+    if (outcome === 'WIN') cityStats[city].wins++;
+    else if (outcome === 'LOSS') cityStats[city].losses++;
+    else cityStats[city].pending++;
+  });
+  const citySorted = Object.entries(cityStats).sort((a,b) => b[1].trades - a[1].trades);
+
+  // --- City bar chart ---
+  const cityChartData = {
+    labels: citySorted.map(([c]) => c),
+    datasets: [
+      {
+        label: 'WIN',
+        data: citySorted.map(([,s]) => s.wins),
+        backgroundColor: 'rgba(0,255,136,0.6)',
+        borderRadius: 3,
+      },
+      {
+        label: 'LOSS',
+        data: citySorted.map(([,s]) => s.losses),
+        backgroundColor: 'rgba(255,59,92,0.6)',
+        borderRadius: 3,
+      },
+      {
+        label: 'Pending',
+        data: citySorted.map(([,s]) => s.pending),
+        backgroundColor: 'rgba(123,97,255,0.4)',
+        borderRadius: 3,
+      }
+    ]
+  };
+
+  const cityChartOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    indexAxis: 'y',
+    plugins: {
+      legend: { labels: { color: '#6b6b85', font: { family: "'Syne Mono', monospace", size: 10 } } },
+    },
+    scales: {
+      x: { stacked: true, ticks: { color: '#6b6b85', font: { family: "'Syne Mono'", size: 9 }, stepSize: 1 }, grid: { color: 'rgba(30,30,48,0.8)' } },
+      y: { stacked: true, ticks: { color: '#6b6b85', font: { family: "'Syne Mono'", size: 9 } }, grid: { display: false } }
+    }
+  };
+
+  // --- Direction split (donut) ---
+  const yesCount = trades.filter(t => t.direction === 'YES').length;
+  const noCount = trades.filter(t => t.direction === 'NO').length;
+
+  const dirData = {
+    labels: ['YES', 'NO'],
+    datasets: [{
+      data: [yesCount, noCount],
+      backgroundColor: ['rgba(0,255,136,0.6)', 'rgba(255,59,92,0.6)'],
+      borderColor: ['#00ff88', '#ff3b5c'],
+      borderWidth: 1,
+    }]
+  };
+
+  const dirOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '60%',
+    plugins: {
+      legend: { position: 'bottom', labels: { color: '#6b6b85', font: { family: "'Syne Mono', monospace", size: 10 }, padding: 16 } },
+    }
+  };
+
+  // --- Timeline ---
+  const timelineItems = [
+    ...scans.map(s => ({ ts: s.ts, type: 'scan', msg: <span>{s.candidates} candidates, {s.trades_made} traded <span className="mono" style={{color:'var(--accent2)'}}>[{s.mode}]</span></span> })),
+    ...trades.map(t => {
+      const res = resMap[t.id];
+      const city = res?.city || '?';
+      return {
+        ts: t.ts, type: 'trade',
+        msg: <span>
+          <span className="tl-city">{city}</span>{' '}
+          <span className={`tl-dir ${t.direction.toLowerCase()}`}>{t.direction}</span>{' '}
+          @ ${fmt(t.market_price)} &middot; <span className="tl-edge">{fmt(t.edge_pts,1)}pt edge</span> &middot; ${fmt(t.bet_usdc)} bet
+        </span>
+      };
+    }),
+    ...signals.filter(s => !s.acted).map(s => ({
+      ts: s.ts, type: 'signal',
+      msg: <span><span className="tl-city">{s.city}</span> {s.outcome} &rarr; {s.direction} &middot; <span className="tl-edge">{fmt(s.edge_pts,1)}pt</span></span>
+    })),
+  ].sort((a,b) => new Date(b.ts) - new Date(a.ts)).slice(0, 30);
+
+  return (
+    <div>
+      <p className="section-title">PERFORMANCE CHARTS</p>
+      <div className="chart-grid">
+        <div className="chart-card chart-full">
+          <div className="chart-title">Cumulative P&L + Exposure</div>
+          <div style={{height: 260}}>
+            <ChartCanvas type="line" data={pnlChartData} options={pnlChartOpts} />
+          </div>
+        </div>
+
+        <div className="chart-card">
+          <div className="chart-title">Edge vs Probability</div>
+          <div style={{height: 240}}>
+            <ChartCanvas type="scatter" data={edgeChartData} options={edgeChartOpts} />
+          </div>
+        </div>
+
+        <div className="chart-card">
+          <div className="chart-title">Edge Distribution</div>
+          <div style={{height: 240}}>
+            <ChartCanvas type="bar" data={histData} options={histOpts} />
+          </div>
+        </div>
+
+        <div className="chart-card">
+          <div className="chart-title">Trades by City</div>
+          <div style={{height: Math.max(200, citySorted.length * 28)}}>
+            <ChartCanvas type="bar" data={cityChartData} options={cityChartOpts} />
+          </div>
+        </div>
+
+        <div className="chart-card">
+          <div className="chart-title">Direction Split</div>
+          <div style={{height: 240}}>
+            <ChartCanvas type="doughnut" data={dirData} options={dirOpts} />
+          </div>
+        </div>
+      </div>
+
+      <p className="section-title">CITY BREAKDOWN</p>
+      <div className="city-grid" style={{marginBottom: 24}}>
+        {citySorted.map(([city, s]) => (
+          <div key={city} className="city-chip">
+            <div className="city-name">{city}</div>
+            <div className="city-stat">{s.trades} trades &middot; ${fmt(s.bet)}</div>
+            <div className="city-stat" style={{color: s.wins > 0 ? 'var(--green)' : s.losses > 0 ? 'var(--red)' : 'var(--muted)'}}>
+              {s.wins}W {s.losses}L {s.pending}P
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="section-title">TIMELINE</p>
+      <div className="chart-card">
+        <div className="timeline">
+          {timelineItems.length === 0 && <div className="empty">NO ACTIVITY YET</div>}
+          {timelineItems.map((item, i) => (
+            <div key={i} className={`tl-item ${item.type}`}>
+              <div className="tl-time">{new Date(item.ts).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
+              <div className="tl-msg">{item.msg}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Root App ──────────────────────────────────────────────────────────────────
 function App() {
   const [tab,     setTab]     = useState('overview');
   const [status,  setStatus]  = useState(null);
+  const [scanning, setScanning] = useState(false);
   const [stats,   setStats]   = useState(null);
   const [trades,  setTrades]  = useState([]);
   const [signals, setSignals] = useState([]);
@@ -659,8 +1176,13 @@ function App() {
   useInterval(fetchAll, 5000);  // refresh every 5s
 
   const triggerScan = async () => {
-    await fetch(`${API}/scan/trigger`, { method:'POST' });
-    setTimeout(fetchAll, 500);
+    setScanning(true);
+    try {
+      await fetch(`${API}/scan/trigger`, { method:'POST' });
+      await fetchAll();
+    } finally {
+      setScanning(false);
+    }
   };
 
   const resolveTrade = async (id, pnl) => {
@@ -715,11 +1237,12 @@ function App() {
 
         {/* Main */}
         <main className="main">
-          {tab === 'overview' && <Overview stats={stats} status={status} onTrigger={triggerScan} />}
-          {tab === 'signals'  && <Signals signals={signals} />}
-          {tab === 'trades'   && <Trades trades={trades} resolutions={resolutions} onResolve={resolveTrade} />}
-          {tab === 'log'      && <ActivityLog scans={scans} signals={signals} />}
-          {tab === 'config'   && <Config config={config} />}
+          {tab === 'overview'   && <Overview stats={stats} status={status} onTrigger={triggerScan} scanning={scanning} />}
+          {tab === 'analytics'  && <Analytics trades={trades} signals={signals} resolutions={resolutions} scans={scans} />}
+          {tab === 'signals'    && <Signals signals={signals} />}
+          {tab === 'trades'     && <Trades trades={trades} resolutions={resolutions} onResolve={resolveTrade} />}
+          {tab === 'log'        && <ActivityLog scans={scans} signals={signals} />}
+          {tab === 'config'     && <Config config={config} />}
         </main>
       </div>
 

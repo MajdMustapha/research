@@ -980,7 +980,7 @@ def recently_traded(market_question: str) -> bool:
     return len(rows) > 0
 
 # ── Core scan loop ─────────────────────────────────────────────────────────────
-MAX_TRADES_PER_SCAN = 6  # increased: 3 edge + 3 longshot tail max
+MAX_TRADES_PER_SCAN = 6  # 3 edge + 3 longshot tail max
 bot_status = {"running": False, "last_scan": None, "next_scan": None, "scan_count": 0}
 
 async def run_scan():
@@ -1651,11 +1651,25 @@ WU_STATION_COORDS = {
     "tokyo":         (35.5494, 139.7798),   # RJTT Haneda
 }
 
+_observed_cache: dict[tuple[str, str], Optional[float]] = {}  # (city_key, date) -> °C or None
+
 def get_observed_high(city: str, date_str: str) -> Optional[float]:
     """Fetch actual observed high temperature (°C).
     Uses Open-Meteo archive API with coordinates matching the Polymarket
-    resolution station (WU airport) for consistency."""
+    resolution station (WU airport) for consistency.
+    Results are cached: permanently for past dates, skipped for today."""
     key = city.lower().strip()
+
+    # Don't even try the archive API for today — data won't be available yet
+    try:
+        if datetime.strptime(date_str, "%Y-%m-%d").date() >= datetime.now().date():
+            return None
+    except ValueError:
+        pass
+
+    cache_key = (key, date_str)
+    if cache_key in _observed_cache:
+        return _observed_cache[cache_key]
 
     # Use resolution station coords if available (more accurate match to Polymarket)
     coords = WU_STATION_COORDS.get(key)
@@ -1672,7 +1686,10 @@ def get_observed_high(city: str, date_str: str) -> Optional[float]:
             "start_date": date_str, "end_date": date_str,
         })
         highs = data.get("daily", {}).get("temperature_2m_max", [None])
-        return highs[0] if highs else None
+        result = highs[0] if highs else None
+        if result is not None:
+            _observed_cache[cache_key] = result
+        return result
     except Exception as e:
         log.warning(f"Historical API failed for {city} {date_str}: {e}")
         return None
