@@ -647,15 +647,33 @@ def get_forecast(city: str, date_str: str):
         log.warning(f"Forecast failed {city}: {e}")
         return None
 
+# ── Forecast cache with TTL ───────────────────────────────────────────────────
+# At 15-min scans, avoid re-fetching the same ensemble when models haven't updated.
+# GFS updates every 6h, ECMWF every 12h — cache for 30 min is safe.
+FORECAST_CACHE_TTL = 30 * 60  # 30 minutes in seconds
+_forecast_cache: dict = {}  # {(city, date): {"forecast": dict, "ts": float}}
+
 def get_best_forecast(city: str, date_str: str):
-    """Try ensemble first, fall back to deterministic."""
+    """Try ensemble first, fall back to deterministic. Uses TTL cache."""
+    import time
+    cache_key = (city.lower(), date_str)
+    now = time.time()
+
+    # Return cached if still fresh
+    cached = _forecast_cache.get(cache_key)
+    if cached and (now - cached["ts"]) < FORECAST_CACHE_TTL:
+        return cached["forecast"]
+
     forecast = get_ensemble_forecast(city, date_str)
     if forecast and forecast["count"] > 1:
         log.info(f"  Ensemble forecast for {city}: {forecast['mean']}°C ±{forecast['stdev']}° ({forecast['count']} members)")
-        return forecast
-    forecast = get_forecast(city, date_str)
+    else:
+        forecast = get_forecast(city, date_str)
+        if forecast:
+            log.info(f"  Deterministic forecast for {city}: {forecast['mean']}°C (fallback)")
+
     if forecast:
-        log.info(f"  Deterministic forecast for {city}: {forecast['mean']}°C (fallback)")
+        _forecast_cache[cache_key] = {"forecast": forecast, "ts": now}
     return forecast
 
 def ensemble_prob_dist(forecast: dict):
@@ -1459,7 +1477,7 @@ def run_backtest(city: str, dates: list[str], threshold: float = None):
 async def scan_loop():
     while True:
         await run_scan()
-        interval = int(os.getenv("SCAN_INTERVAL_MINUTES", "60")) * 60
+        interval = int(os.getenv("SCAN_INTERVAL_MINUTES", "15")) * 60
         bot_status["next_scan"] = (
             datetime.now(timezone.utc).timestamp() + interval
         )
@@ -1550,7 +1568,7 @@ def get_config():
         "dry_run": DRY_RUN, "max_bet": MAX_BET_USDC,
         "min_edge": MIN_EDGE_PTS, "kelly_fraction": KELLY_FRACTION,
         "bankroll": BANKROLL_USDC,
-        "scan_interval_min": int(os.getenv("SCAN_INTERVAL_MINUTES", "60")),
+        "scan_interval_min": int(os.getenv("SCAN_INTERVAL_MINUTES", "15")),
     }
 
 # ── Backtest API ─────────────────────────────────────────────────────────────
