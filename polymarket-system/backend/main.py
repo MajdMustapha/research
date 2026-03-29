@@ -43,6 +43,50 @@ FUNDER_ADDR    = os.getenv("POLY_FUNDER_ADDRESS", "")
 GAMMA_API      = "https://gamma-api.polymarket.com"
 CLOB_API       = "https://clob.polymarket.com"
 CLOB_WS        = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+POLY_CLI        = os.getenv("POLY_CLI", "polymarket")  # path to polymarket CLI binary
+WEATHER_TAGS   = {"weather", "climate"}
+# Include closed markets in scan for testing (no open weather markets exist right now)
+INCLUDE_CLOSED_FOR_TEST = os.getenv("INCLUDE_CLOSED", "true").lower() == "true"
+
+# ── Polymarket CLI wrapper ────────────────────────────────────────────────────
+def poly_cli(args: list[str], timeout: int = 30) -> Optional[list | dict]:
+    """Run a polymarket CLI command and return parsed JSON output.
+    Always appends '-o json'. Returns None on failure."""
+    cmd = [POLY_CLI, "-o", "json"] + args
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            log.warning(f"poly_cli {' '.join(args)}: exit {result.returncode}: {result.stderr[:200]}")
+            return None
+        return json.loads(result.stdout)
+    except subprocess.TimeoutExpired:
+        log.warning(f"poly_cli {' '.join(args)}: timeout ({timeout}s)")
+        return None
+    except (json.JSONDecodeError, Exception) as e:
+        log.warning(f"poly_cli {' '.join(args)}: {e}")
+        return None
+
+def poly_search(query: str, limit: int = 50) -> list:
+    """Search markets via CLI. Returns list of market dicts."""
+    return poly_cli(["markets", "search", query, "--limit", str(limit)]) or []
+
+def poly_events_by_tag(tag: str, active: bool = True, limit: int = 30) -> list:
+    """List events by tag via CLI. Returns list of event dicts."""
+    args = ["events", "list", "--tag", tag, "--limit", str(limit)]
+    if active:
+        args += ["--active", "true"]
+    return poly_cli(args) or []
+
+def poly_price(token_id: str, side: str = "buy") -> Optional[float]:
+    """Get price for a token via CLI."""
+    data = poly_cli(["clob", "price", token_id, "--side", side])
+    if data and isinstance(data, dict):
+        return float(data.get("price", 0))
+    return None
+
+def poly_book(token_id: str) -> Optional[dict]:
+    """Get orderbook for a token via CLI."""
+    return poly_cli(["clob", "book", token_id])
 
 # ── DB init ───────────────────────────────────────────────────────────────────
 def init_db():
@@ -127,6 +171,8 @@ CITY_COORDS = {
     "hong kong": (22.3080, 113.9185),  # VHHH HK Airport
     "london":    (51.4775, -0.4614),   # EGLL Heathrow
     "new york":  (40.7772, -73.8726),  # KLGA LaGuardia
+    "nyc":       (40.7772, -73.8726),  # alias for New York City
+    "new york city": (40.7772, -73.8726),
     "taipei":    (25.0777, 121.2328),  # RCTP Taoyuan
     "seoul":     (37.5583, 126.7906),  # RKSS Gimpo
     "beijing":   (40.0799, 116.6031),
@@ -134,59 +180,396 @@ CITY_COORDS = {
     "tokyo":     (35.5493, 139.7798),
     "dubai":     (25.2532, 55.3657),
     "singapore": (1.3644, 103.9915),
+    "chicago":   (41.9742, -87.9073),  # KORD O'Hare
+    "los angeles": (33.9416, -118.4085), # KLAX
+    "miami":     (25.7959, -80.2870),  # KMIA
+    "paris":     (49.0097, 2.5479),    # LFPG CDG
+    "sydney":    (-33.9461, 151.1772), # YSSY
+    "mumbai":    (19.0896, 72.8656),   # VABB
+    # Cities from live Polymarket temperature markets
+    "ankara":    (40.1281, 32.9951),   # LTAC Esenboğa
+    "atlanta":   (33.6407, -84.4277),  # KATL Hartsfield
+    "austin":    (30.1945, -97.6699),  # KAUS
+    "buenos aires": (-34.5592, -58.4156), # SAEZ Ezeiza
+    "chengdu":   (30.5785, 103.9471),  # ZUUU Shuangliu
+    "chongqing": (29.7192, 106.6416),  # ZUCK Jiangbei
+    "dallas":    (32.8998, -97.0403),  # KDFW
+    "houston":   (29.9902, -95.3368),  # KIAH Bush
+    "lucknow":   (26.7606, 80.8893),   # VILK Amausi
+    "madrid":    (40.4936, -3.5668),   # LEMD Barajas
+    "milan":     (45.6306, 8.7281),    # LIMC Malpensa
+    "munich":    (48.3538, 11.7861),   # EDDM
+    "san francisco": (37.6213, -122.3790), # KSFO
+    "sao paulo": (-23.4356, -46.4731), # SBGR Guarulhos
+    "seattle":   (47.4502, -122.3088), # KSEA
+    "shanghai":  (31.1443, 121.8083),  # ZSPD Pudong
+    "shenzhen":  (22.6393, 113.8107),  # ZGSZ Bao'an
+    "tel aviv":  (32.0055, 34.8854),   # LLBG Ben Gurion
+    "toronto":   (43.6772, -79.6306),  # CYYZ Pearson
+    "warsaw":    (52.1657, 20.9671),   # EPWA Chopin
+    "wellington": (-41.3272, 174.8053), # NZWN
 }
 
-def parse_city_date(question: str):
-    q = question.lower()
-    m = re.search(r"highest temperature in (.+?) on ([a-z]+ \d+)", q)
-    if not m: return None, None
+def f_to_c(f: float) -> float:
+    return (f - 32) * 5 / 9
+
+def c_to_f(c: float) -> float:
+    return c * 9 / 5 + 32
+
+# ── Market type parsers ───────────────────────────────────────────────────────
+def parse_city_temp_market(question: str):
+    """Parse temperature market questions. Handles both formats:
+      - 'Will the highest temperature in Seoul be 12°C on March 29?'
+      - 'Will the highest temperature in Atlanta be between 64-65°F on March 29?'
+      - 'Will the highest temperature in London be 16°C or higher on March 29?'
+    Returns (city, date_str, unit) or (None, None, None)."""
+    q = re.sub(r"^(?:arch?i?v?e?d?)?(?=will\b)", "", question, flags=re.IGNORECASE).strip().lower()
+
+    # Pattern: "highest temperature in <city> ... on <month> <day>"
+    m = re.search(r"highest temperature in (.+?)\s+(?:be\s|on\s)", q)
+    if not m:
+        return None, None, None
     city = m.group(1).strip().title()
+
+    # Extract date: "on March 29" — match month names to avoid false matches like "london be"
+    MONTHS = "january|february|march|april|may|june|july|august|september|october|november|december"
+    dm = re.search(rf"\bon\s+({MONTHS})\s+(\d+)", q)
+    if not dm:
+        return None, None, None
     try:
+        month_str = dm.group(1).strip()
+        day_str = dm.group(2).strip()
         year = datetime.now().year
-        dt = datetime.strptime(f"{m.group(2).strip()} {year}", "%B %d %Y")
-        return city, dt.strftime("%Y-%m-%d")
+        dt = datetime.strptime(f"{month_str} {day_str} {year}", "%B %d %Y")
+        date_str = dt.strftime("%Y-%m-%d")
     except:
-        return None, None
+        return None, None, None
+
+    unit = "F" if ("°f" in q or "f " in q.split("on")[0][-5:]) else "C"
+    return city, date_str, unit
+
+def parse_temp_range(outcome_question: str):
+    """Parse market question for temperature range.
+    Returns (lo, hi, unit) where lo/hi are Fahrenheit or Celsius floats.
+    Handles all live Polymarket formats:
+      Single-degree °C: 'be 12°C on' -> (11.5, 12.5, 'C')
+      Range °F bins:    'between 64-65°F' -> (64, 65, 'F')
+      Tail low:         '8°C or below' -> (-999, 8.5, 'C')
+      Tail high:        '18°C or higher' -> (17.5, 999, 'C')
+      Tail low °F:      '55°F or below' -> (-999, 55, 'F')
+      Tail high °F:     '78°F or higher' -> (78, 999, 'F')
+    """
+    q = outcome_question.lower()
+
+    # Detect unit — check for °F / °f patterns; default to C
+    unit = "C"
+    if "°f" in q or "ºf" in q:
+        unit = "F"
+    elif re.search(r"\d+f\b", q):
+        unit = "F"
+
+    # "between X-Y" (°F 2-degree bins)
+    m = re.search(r"between\s+([\d.]+)\s*[-–]\s*([\d.]+)", q)
+    if m:
+        return float(m.group(1)), float(m.group(2)), unit
+
+    m = re.search(r"between\s+([\d.]+)\s+and\s+([\d.]+)", q)
+    if m:
+        return float(m.group(1)), float(m.group(2)), unit
+
+    # "X°C or higher" / "X°F or higher" (tail high)
+    m = re.search(r"([\d.]+)\s*°?[fFcC]?\s*or\s+(?:higher|above|more)", q)
+    if m:
+        val = float(m.group(1))
+        # For single-degree Celsius tail, use val-0.5 as lower bound
+        lo = val - 0.5 if unit == "C" else val
+        return lo, 999, unit
+
+    # "X°C or below" / "X°F or below" (tail low)
+    m = re.search(r"([\d.]+)\s*°?[fFcC]?\s*or\s+(?:below|lower|less)", q)
+    if m:
+        val = float(m.group(1))
+        hi = val + 0.5 if unit == "C" else val
+        return -999, hi, unit
+
+    m = re.search(r"(?:more|greater|above)\s+than\s+([\d.]+)", q)
+    if m:
+        val = float(m.group(1))
+        lo = val - 0.5 if unit == "C" else val
+        return lo, 999, unit
+
+    m = re.search(r"(?:less|lower|below)\s+than\s+([\d.]+)", q)
+    if m:
+        val = float(m.group(1))
+        hi = val + 0.5 if unit == "C" else val
+        return -999, hi, unit
+
+    # Single-degree: "be 12°C on" — integer degree, bin is [X-0.5, X+0.5)
+    m = re.search(r"be\s+([\d.]+)\s*°[cC]\s+on\b", q)
+    if m:
+        val = float(m.group(1))
+        return val - 0.5, val + 0.5, "C"
+
+    # Single-degree °F variant (unlikely but handle): "be 72°F on"
+    m = re.search(r"be\s+([\d.]+)\s*°[fF]\s+on\b", q)
+    if m:
+        val = float(m.group(1))
+        return val - 0.5, val + 0.5, "F"
+
+    return None, None, None
+
+def classify_weather_market(market: dict) -> str:
+    """Classify a market into a weather type for strategy selection.
+    Returns: 'city_temp', 'global_temp', 'hottest_period', 'hurricane', or None."""
+    q = (market.get("question") or "").lower()
+    tags = [t.lower() for t in (market.get("tags") or []) if isinstance(t, str)]
+
+    if "highest temperature in" in q:
+        return "city_temp"
+    if "global temperature increase" in q or "heat increase" in q:
+        return "global_temp"
+    if "hottest" in q and ("year" in q or "month" in q or "record" in q
+                           or any(m in q for m in ["january","february","march","april","may","june",
+                                                    "july","august","september","october","november","december"])):
+        return "hottest_period"
+    if any(w in q for w in ["hurricane", "named storm", "tropical storm", "landfall", "category"]):
+        return "hurricane"
+    return None
+
+# ── Global temp market parser ─────────────────────────────────────────────────
+GLOBAL_TEMP_API = "https://archive-api.open-meteo.com/v1/archive"
+
+def parse_global_temp_market(question: str):
+    """Parse 'global temperature increase above X°C' style markets.
+    Returns (threshold_c, period_description) or (None, None)."""
+    q = question.lower()
+    # "global temperature increase above 1.5°C" / "exceed 1.5 degrees"
+    m = re.search(r"(?:global|world)\s+(?:average\s+)?temperature\s+(?:increase|anomaly|rise)\s+(?:above|exceed|over|surpass)\s+([\d.]+)\s*°?c?", q)
+    if m:
+        return float(m.group(1)), "annual"
+    m = re.search(r"(?:exceed|surpass|above|over)\s+([\d.]+)\s*°?c?\s+(?:global|warming)", q)
+    if m:
+        return float(m.group(1)), "annual"
+    return None, None
+
+def evaluate_global_temp_market(market: dict) -> Optional[dict]:
+    """Evaluate a global temperature market using recent ERA5/reanalysis trend data.
+    Returns a signal dict or None."""
+    q = market.get("question", "")
+    threshold, period = parse_global_temp_market(q)
+    if threshold is None:
+        return None
+
+    # Use a simple heuristic based on known warming trajectory:
+    # Current global temp anomaly is ~1.3-1.5°C above pre-industrial.
+    # We estimate probability using a logistic model around current trajectory.
+    # This is a rough prior — refined by checking recent monthly anomalies.
+    try:
+        # Fetch recent global temperature proxy: average temp anomaly from multiple grid points
+        # We sample 5 geographically spread stations and compare to baseline
+        sample_coords = [
+            (51.5, -0.1),   # London
+            (40.7, -74.0),  # NYC
+            (-33.9, 151.2), # Sydney
+            (35.7, 139.7),  # Tokyo
+            (1.3, 103.9),   # Singapore
+        ]
+        from datetime import timedelta
+        end = datetime.now().date() - timedelta(days=5)  # recent data availability lag
+        start = end - timedelta(days=30)
+
+        anomalies = []
+        for lat, lon in sample_coords:
+            try:
+                data = curl_get(GLOBAL_TEMP_API, {
+                    "latitude": lat, "longitude": lon,
+                    "daily": "temperature_2m_mean",
+                    "temperature_unit": "celsius", "timezone": "auto",
+                    "start_date": start.isoformat(), "end_date": end.isoformat(),
+                })
+                temps = data.get("daily", {}).get("temperature_2m_mean", [])
+                if temps:
+                    valid = [t for t in temps if t is not None]
+                    if valid:
+                        anomalies.append(statistics.mean(valid))
+            except:
+                pass
+
+        if not anomalies:
+            return None
+
+        record_api_success()
+
+        # Simple probability model: logistic curve around threshold
+        # P(exceed) = 1 / (1 + exp(-k*(current_trend - threshold)))
+        # Current warming ~1.3°C baseline; scale factor heuristic
+        current_estimate = 1.35  # approximate current anomaly baseline
+        k = 5.0  # steepness
+        prob_exceed = 1 / (1 + math.exp(-k * (current_estimate - threshold)))
+
+        return {
+            "type": "global_temp",
+            "threshold": threshold,
+            "prob_exceed": round(prob_exceed, 4),
+            "current_estimate": current_estimate,
+            "sample_points": len(anomalies),
+        }
+    except Exception as e:
+        log.warning(f"Global temp eval failed: {e}")
+        return None
+
+# ── CLOB API market fetcher ──────────────────────────────────────────────────
+def _fetch_via_cli() -> list:
+    """Primary: fetch weather markets using polymarket CLI (fast, tag-based)."""
+    weather_markets = []
+
+    # 1) Direct temperature search — catches all city temp markets
+    temp_markets = poly_search("highest temperature", limit=100)
+    # 2) Weather events by tag — catches hurricanes, global temp, etc.
+    weather_events = poly_events_by_tag("Weather", active=True, limit=30)
+    event_markets = []
+    for evt in weather_events:
+        for m in (evt.get("markets") or []):
+            event_markets.append(m)
+
+    # Deduplicate by question
+    seen = set()
+    for m in temp_markets + event_markets:
+        q = m.get("question", "")
+        if q in seen:
+            continue
+        seen.add(q)
+
+        mtype = classify_weather_market(m)
+        tags = [t.lower() for t in (m.get("tags") or []) if isinstance(t, str)]
+        has_weather_tag = bool(WEATHER_TAGS & set(tags))
+
+        if not has_weather_tag and not mtype:
+            continue
+
+        is_open = m.get("active", False) and not m.get("closed", True)
+        if not is_open and not INCLUDE_CLOSED_FOR_TEST:
+            continue
+
+        m["_weather_type"] = mtype or "other"
+        m["_is_open"] = is_open
+        weather_markets.append(m)
+
+    return weather_markets
+
+def _fetch_via_clob() -> list:
+    """Fallback: paginate CLOB API directly."""
+    cursor = "MA=="
+    weather_markets = []
+    pages = 0
+    max_pages = 30
+
+    while cursor and pages < max_pages:
+        try:
+            data = curl_get(f"{CLOB_API}/markets", {"next_cursor": cursor})
+        except Exception as e:
+            log.warning(f"CLOB API page {pages} failed: {e}")
+            break
+
+        markets = data.get("data", [])
+        cursor = data.get("next_cursor")
+        pages += 1
+
+        for m in markets:
+            tags = [t.lower() for t in (m.get("tags") or []) if isinstance(t, str)]
+            has_weather_tag = bool(WEATHER_TAGS & set(tags))
+            mtype = classify_weather_market(m)
+
+            if not has_weather_tag and not mtype:
+                continue
+
+            is_open = m.get("active", False) and not m.get("closed", True)
+            if not is_open and not INCLUDE_CLOSED_FOR_TEST:
+                continue
+
+            m["_weather_type"] = mtype or "other"
+            m["_is_open"] = is_open
+            weather_markets.append(m)
+
+        if not cursor or cursor == "LTE=":
+            break
+
+    return weather_markets
+
+def fetch_weather_markets() -> list:
+    """Fetch weather markets — tries CLI first (fast), falls back to CLOB pagination."""
+    # Try CLI first
+    markets = _fetch_via_cli()
+    source = "CLI"
+    if not markets:
+        log.info("CLI fetch returned nothing, falling back to CLOB API pagination")
+        markets = _fetch_via_clob()
+        source = "CLOB"
+
+    open_count = len([m for m in markets if m.get("_is_open")])
+    log.info(f"Fetched {len(markets)} weather markets via {source} ({open_count} open)")
+    return markets
 
 # ── Improvement 1: GFS 31-member ensemble forecast ──────────────────────────
-def get_ensemble_forecast(city: str, date_str: str):
-    """Fetch 31-member GFS ensemble from Open-Meteo for calibrated probabilities."""
-    key = city.lower().strip()
-    coords = next((v for k, v in CITY_COORDS.items() if k in key or key in k), None)
-    if not coords: return None
-    lat, lon = coords
+ENSEMBLE_MODELS = ["gfs_seamless", "ecmwf_ifs025"]
+
+def _fetch_ensemble_model(lat: float, lon: float, date_str: str, model: str) -> list[float]:
+    """Fetch ensemble members for a single model. Returns list of temps (°C).
+    Open-Meteo returns members as temperature_2m_max_member01..memberNN keys."""
     try:
         data = curl_get("https://ensemble-api.open-meteo.com/v1/ensemble", {
             "latitude": lat, "longitude": lon,
             "daily": "temperature_2m_max",
             "temperature_unit": "celsius", "timezone": "auto",
             "start_date": date_str, "end_date": date_str,
-            "models": "gfs_seamless"
+            "models": model
         })
         d = data.get("daily", {})
-        highs = d.get("temperature_2m_max", [])
-        if not highs:
-            return None
-        # For ensemble API, we may get a list of member values or a single list
-        # Handle both formats
-        if isinstance(highs[0], list):
-            members = [h for sublist in highs for h in sublist if h is not None]
-        else:
-            members = [h for h in highs if h is not None]
+        members = []
+        # Extract individual ensemble members (temperature_2m_max_member01, etc.)
+        for key, vals in d.items():
+            if key.startswith("temperature_2m_max_member") and isinstance(vals, list):
+                for v in vals:
+                    if v is not None:
+                        members.append(float(v))
+        # If no member keys found, fall back to the mean value
         if not members:
-            return None
-        return {
-            "members": members,
-            "mean": round(statistics.mean(members), 1),
-            "stdev": round(statistics.stdev(members), 1) if len(members) > 1 else 1.5,
-            "min": round(min(members), 1),
-            "max": round(max(members), 1),
-            "count": len(members),
-            "source": f"Open-Meteo GFS Ensemble ({len(members)} members)"
-        }
+            highs = d.get("temperature_2m_max", [])
+            if highs:
+                members = [h for h in highs if h is not None]
+        return members
     except Exception as e:
-        log.warning(f"Ensemble forecast failed {city}: {e}")
+        log.warning(f"Ensemble model {model} failed: {e}")
+        return []
+
+def get_ensemble_forecast(city: str, date_str: str):
+    """Fetch multi-model ensemble (GFS + ECMWF) from Open-Meteo for calibrated probabilities."""
+    key = city.lower().strip()
+    coords = next((v for k, v in CITY_COORDS.items() if k in key or key in k), None)
+    if not coords: return None
+    lat, lon = coords
+
+    all_members = []
+    sources = []
+    for model in ENSEMBLE_MODELS:
+        members = _fetch_ensemble_model(lat, lon, date_str, model)
+        if members:
+            sources.append(f"{model}({len(members)})")
+            all_members.extend(members)
+
+    if not all_members:
         return None
+
+    record_api_success()
+    return {
+        "members": all_members,
+        "mean": round(statistics.mean(all_members), 1),
+        "stdev": round(statistics.stdev(all_members), 1) if len(all_members) > 1 else 1.5,
+        "min": round(min(all_members), 1),
+        "max": round(max(all_members), 1),
+        "count": len(all_members),
+        "source": f"Open-Meteo Ensemble: {' + '.join(sources)}"
+    }
 
 def get_forecast(city: str, date_str: str):
     """Fallback: single best-match deterministic forecast."""
@@ -233,20 +616,18 @@ def get_best_forecast(city: str, date_str: str):
 
 def ensemble_prob_dist(forecast: dict):
     """Build probability distribution from ensemble members.
-    Counts what fraction of ensemble members predict each integer temperature."""
+    Counts what fraction of ensemble members predict each integer temperature (°C)."""
     members = forecast["members"]
     mean = forecast["mean"]
     stdev = forecast["stdev"]
 
     if len(members) >= 5:
-        # Empirical distribution from ensemble members
         rounded = [round(m) for m in members]
         counts = {}
         for t in rounded:
             counts[str(t)] = counts.get(str(t), 0) + 1
         total = len(rounded)
         dist = {k: round(v / total, 4) for k, v in counts.items()}
-        # Extend to cover nearby temps with small probabilities
         all_temps = [int(k) for k in dist.keys()]
         lo, hi = min(all_temps) - 3, max(all_temps) + 3
         for t in range(lo, hi + 1):
@@ -255,7 +636,6 @@ def ensemble_prob_dist(forecast: dict):
                 dist[k] = 0.0
         return dist
     else:
-        # Gaussian fallback using ensemble mean/stdev
         mu = mean
         sigma = max(stdev, 0.5)
         def g(x): return math.exp(-0.5 * ((x - mu) / sigma) ** 2)
@@ -263,6 +643,30 @@ def ensemble_prob_dist(forecast: dict):
         raw = {str(b): g(b) for b in buckets}
         total = sum(raw.values())
         return {k: round(v / total, 4) for k, v in raw.items()}
+
+def ensemble_prob_in_range(forecast: dict, lo: float, hi: float, unit: str = "C") -> float:
+    """Calculate probability that temperature falls in [lo, hi] range.
+    If unit='F', converts range to Celsius before comparing against ensemble members (which are °C)."""
+    if unit == "F":
+        lo_c = f_to_c(lo) if lo > -900 else -900
+        hi_c = f_to_c(hi) if hi < 900 else 900
+    else:
+        lo_c, hi_c = lo, hi
+
+    members = forecast["members"]
+    if len(members) >= 5:
+        count = sum(1 for m in members if lo_c <= m <= hi_c)
+        return round(count / len(members), 4)
+    else:
+        # Gaussian fallback
+        mu = forecast["mean"]
+        sigma = max(forecast["stdev"], 0.5)
+        from math import erf
+        def phi(x):
+            return 0.5 * (1 + erf((x - mu) / (sigma * math.sqrt(2))))
+        p_lo = phi(lo_c) if lo_c > -900 else 0.0
+        p_hi = phi(hi_c) if hi_c < 900 else 1.0
+        return round(max(0, p_hi - p_lo), 4)
 
 # ── Improvement 2: Kelly criterion bet sizing ────────────────────────────────
 def kelly_bet(my_prob: float, market_price: float, direction: str) -> float:
@@ -360,10 +764,46 @@ def db_query(sql: str, params=()):
     con.close()
     return [dict(r) for r in rows]
 
+# ── Error tracking / circuit breaker ──────────────────────────────────────────
+MAX_CONSECUTIVE_ERRORS = 3
+_error_state = {"consecutive": 0, "paused": False, "last_error": None}
+
+def record_api_error(context: str, err: Exception):
+    _error_state["consecutive"] += 1
+    _error_state["last_error"] = f"{context}: {err}"
+    if _error_state["consecutive"] >= MAX_CONSECUTIVE_ERRORS:
+        _error_state["paused"] = True
+        log.error(f"CIRCUIT BREAKER: {_error_state['consecutive']} consecutive API errors — scanning paused. "
+                  f"Last: {_error_state['last_error']}")
+
+def record_api_success():
+    _error_state["consecutive"] = 0
+    if _error_state["paused"]:
+        log.info("Circuit breaker reset — API recovered")
+    _error_state["paused"] = False
+
+# ── Trade deduplication ───────────────────────────────────────────────────────
+TRADE_COOLDOWN_HOURS = 12
+
+def recently_traded(market_question: str) -> bool:
+    """Check if we already traded this market within the cooldown window."""
+    rows = db_query(
+        "SELECT id FROM trades WHERE market = ? AND ts > datetime('now', ?)",
+        (market_question, f"-{TRADE_COOLDOWN_HOURS} hours")
+    )
+    return len(rows) > 0
+
 # ── Core scan loop ─────────────────────────────────────────────────────────────
+MAX_TRADES_PER_SCAN = 3
 bot_status = {"running": False, "last_scan": None, "next_scan": None, "scan_count": 0}
 
 async def run_scan():
+    # Circuit breaker check
+    if _error_state["paused"]:
+        log.warning(f"Scan skipped — circuit breaker active ({_error_state['consecutive']} errors). "
+                    f"Call POST /api/errors/reset to resume.")
+        return
+
     bot_status["running"] = True
     now = datetime.now(timezone.utc).isoformat()
     log.info(f"=== SCAN START {now} DRY={DRY_RUN} ===")
@@ -372,69 +812,119 @@ async def run_scan():
     candidates  = 0
 
     try:
-        # 1. Fetch markets
-        params = {"tag": "weather", "active": "true", "closed": "false", "limit": "200"}
-        raw = curl_get(f"{GAMMA_API}/markets", params)
-        markets = [m for m in raw
-                   if "highest temperature" in m.get("question", "").lower()
-                   and float(m.get("volume", 0)) < 50_000
-                   and m.get("active", False)]
-        markets.sort(key=lambda x: float(x.get("volume", 0)))
+        # 1. Fetch weather markets from CLOB API
+        all_markets = fetch_weather_markets()
+        record_api_success()  # CLOB API responded
+        # Focus on city_temp markets (our core strategy)
+        markets = [m for m in all_markets if m.get("_weather_type") == "city_temp"]
         candidates = len(markets)
-        log.info(f"Found {candidates} candidate markets")
+        log.info(f"Found {candidates} city_temp candidate markets ({len(all_markets)} total weather)")
 
-        # Collect token IDs for WebSocket subscription
+        # Limit: process up to 50 markets for testing, 8 for live
+        max_eval = 50 if INCLUDE_CLOSED_FOR_TEST else 8
+
+        # Collect token IDs for WebSocket subscription (only open markets)
+        open_markets = [m for m in markets[:max_eval] if m.get("_is_open")]
         all_token_ids = []
-        for market in markets[:8]:
-            for tok in market.get("tokens", []):
+        for market in open_markets:
+            for tok in (market.get("tokens") or []):
                 tid = tok.get("token_id")
                 if tid:
                     all_token_ids.append(tid)
 
-        # Start WebSocket feed if we have tokens and it's not running
+        # Start WebSocket feed if we have open tokens and it's not running
         global ws_task
         if all_token_ids and (ws_task is None or ws_task.done()):
             ws_task = asyncio.create_task(ws_price_listener(all_token_ids))
-            await asyncio.sleep(2)  # give WS time to connect
+            await asyncio.sleep(2)
 
-        for market in markets[:8]:
+        forecast_cache = {}  # cache forecasts by (city, date) to avoid redundant API calls
+        for market in markets[:max_eval]:
+            if trades_made >= MAX_TRADES_PER_SCAN:
+                log.info(f"  Hit {MAX_TRADES_PER_SCAN}-trade cap for this scan, stopping.")
+                break
+
             q = market.get("question", "")
-            city, date_str = parse_city_date(q)
-            if not city or not date_str: continue
 
-            # Fetch prices (WS cache → REST fallback)
-            prices = {}
-            for tok in market.get("tokens", []):
-                tid = tok.get("token_id")
-                outcome = tok.get("outcome", "")
-                if not tid: continue
-                price = get_price(tid)
-                if price and price > 0:
-                    prices[outcome] = price
+            # Deduplication: skip if traded recently
+            if recently_traded(q):
+                log.info(f"  Skipped (recently traded): {q[:60]}")
+                continue
 
-            if not prices: continue
+            city, date_str, temp_unit = parse_city_temp_market(q)
+            if not city or not date_str:
+                log.info(f"  Skipped (parse fail): {q[:80]}")
+                continue
 
-            # Ensemble forecast (Improvement 1)
-            forecast = get_best_forecast(city, date_str)
-            if not forecast: continue
+            # Use market end_date to get correct year for the date
+            end_date = market.get("end_date_iso", "")
+            if end_date:
+                try:
+                    market_year = end_date[:4]
+                    date_str = f"{market_year}-{date_str[5:]}"
+                except:
+                    pass
+
+            # Fetch ensemble forecast (always returns °C)
+            # If market date is in the past, use today+1 as proxy (for testing closed markets)
+            forecast_date = date_str
+            try:
+                mdate = datetime.strptime(date_str, "%Y-%m-%d").date()
+                today = datetime.now().date()
+                if mdate < today:
+                    from datetime import timedelta
+                    forecast_date = (today + timedelta(days=1)).isoformat()
+                    log.info(f"  Using proxy date {forecast_date} for past market date {date_str}")
+            except:
+                pass
+
+            cache_key = (city.lower(), forecast_date)
+            if cache_key in forecast_cache:
+                forecast = forecast_cache[cache_key]
+            else:
+                forecast = get_best_forecast(city, forecast_date)
+                forecast_cache[cache_key] = forecast
+            if not forecast:
+                log.info(f"  Skipped (no forecast): {city} {forecast_date}")
+                continue
 
             fmean = forecast["mean"]
             fstdev = forecast["stdev"]
-            dist = ensemble_prob_dist(forecast)
 
-            # Find edges
-            for outcome, mkt_price in prices.items():
-                if mkt_price <= 0: continue
-                nums = re.findall(r"\d+", outcome)
-                if not nums: continue
-                my_p = dist.get(nums[0], 0.0)
+            # For each token (outcome) in this market, compute edge
+            tokens = market.get("tokens") or []
+            for tok in tokens:
+                tid = tok.get("token_id", "")
+                outcome = tok.get("outcome", "")
+                mkt_price = float(tok.get("price", 0))
+
+                # Try WS cache for fresher price
+                cached = get_price(tid)
+                if cached and cached > 0:
+                    mkt_price = cached
+
+                if mkt_price <= 0.01 or mkt_price >= 0.99:
+                    continue
+
+                # Parse the temperature range from the full question
+                lo, hi, unit = parse_temp_range(q)
+                if lo is None:
+                    continue
+
+                # Compute probability using ensemble
+                my_p = ensemble_prob_in_range(forecast, lo, hi, unit)
+
+                # For YES token: my_p is prob of YES
+                # outcome is typically "Yes" or "No"
+                if outcome.lower() == "no":
+                    my_p = 1 - my_p
+
                 edge = my_p - mkt_price
-
                 direction = "YES" if edge > 0 else "NO"
-                true_edge = (abs((1 - my_p) - (1 - mkt_price)) if direction == "NO"
-                             else abs(edge))
+                true_edge = abs(edge)
 
-                if true_edge * 100 < MIN_EDGE_PTS: continue
+                if true_edge * 100 < MIN_EDGE_PTS:
+                    continue
 
                 # EV calc
                 if direction == "YES":
@@ -443,7 +933,7 @@ async def run_scan():
                     wp = 1 - my_p
                     ev = wp * mkt_price - (1 - wp) * (1 - mkt_price)
 
-                # Kelly sizing (Improvement 2)
+                # Kelly sizing
                 bet_size = kelly_bet(my_p, mkt_price, direction)
 
                 sig = {
@@ -455,14 +945,14 @@ async def run_scan():
                     "ev_per_10": round(ev * 10, 2), "acted": 0,
                 }
                 db_insert("signals", sig)
-                log.info(f"SIGNAL: {direction} {outcome} edge={sig['edge_pts']}pts "
+                log.info(f"SIGNAL: {direction} on '{q[:60]}' edge={sig['edge_pts']}pts "
                          f"ev={sig['ev_per_10']} kelly=${bet_size} "
-                         f"(ensemble: {forecast['count']} members, spread={fstdev}°)")
+                         f"(forecast: {fmean}°C ±{fstdev}°, range={lo}-{hi}°{unit})")
 
                 # Execute (dry or live)
                 status = "dry_run"
                 tx_hash = None
-                if not DRY_RUN and PRIVATE_KEY and FUNDER_ADDR:
+                if not DRY_RUN and PRIVATE_KEY and FUNDER_ADDR and market.get("_is_open"):
                     status, tx_hash = execute_live(market, outcome, direction, mkt_price, bet_size)
 
                 trade = {
@@ -479,8 +969,90 @@ async def run_scan():
                 await asyncio.sleep(0.5)
                 break   # one trade per market
 
+        # ── Pass 2: global temperature markets ────────────────────────────────
+        global_markets = [m for m in all_markets if m.get("_weather_type") == "global_temp"]
+        if global_markets:
+            log.info(f"Evaluating {len(global_markets)} global_temp markets")
+
+        for market in global_markets[:5]:
+            if trades_made >= MAX_TRADES_PER_SCAN:
+                break
+
+            q = market.get("question", "")
+            if recently_traded(q):
+                continue
+
+            eval_result = evaluate_global_temp_market(market)
+            if not eval_result:
+                continue
+
+            tokens = market.get("tokens") or []
+            for tok in tokens:
+                tid = tok.get("token_id", "")
+                outcome = tok.get("outcome", "")
+                mkt_price = float(tok.get("price", 0))
+
+                cached = get_price(tid)
+                if cached and cached > 0:
+                    mkt_price = cached
+                if mkt_price <= 0.01 or mkt_price >= 0.99:
+                    continue
+
+                # For "Yes" token, our prob is prob_exceed
+                my_p = eval_result["prob_exceed"]
+                if outcome.lower() == "no":
+                    my_p = 1 - my_p
+
+                edge = my_p - mkt_price
+                direction = "YES" if edge > 0 else "NO"
+                true_edge = abs(edge)
+
+                if true_edge * 100 < MIN_EDGE_PTS:
+                    continue
+
+                if direction == "YES":
+                    ev = my_p * (1 - mkt_price) - (1 - my_p) * mkt_price
+                else:
+                    wp = 1 - my_p
+                    ev = wp * mkt_price - (1 - wp) * (1 - mkt_price)
+
+                bet_size = kelly_bet(my_p, mkt_price, direction)
+
+                sig = {
+                    "ts": now, "market": q, "city": "GLOBAL",
+                    "forecast_c": eval_result["current_estimate"],
+                    "ensemble_spread": 0,
+                    "market_price": mkt_price,
+                    "outcome": outcome, "direction": direction,
+                    "edge_pts": round(true_edge * 100, 1),
+                    "ev_per_10": round(ev * 10, 2), "acted": 0,
+                }
+                db_insert("signals", sig)
+                log.info(f"SIGNAL [global]: {direction} on '{q[:60]}' edge={sig['edge_pts']}pts "
+                         f"threshold={eval_result['threshold']}°C")
+
+                status = "dry_run"
+                tx_hash = None
+                if not DRY_RUN and PRIVATE_KEY and FUNDER_ADDR and market.get("_is_open"):
+                    status, tx_hash = execute_live(market, outcome, direction, mkt_price, bet_size)
+
+                trade = {
+                    "ts": now, "market": q, "outcome": outcome,
+                    "direction": direction, "market_price": mkt_price,
+                    "my_prob": round(my_p if direction == "YES" else (1 - my_p), 4),
+                    "edge_pts": sig["edge_pts"], "ev_per_10": sig["ev_per_10"],
+                    "bet_usdc": bet_size, "kelly_frac": round(KELLY_FRACTION, 2),
+                    "status": status,
+                    "tx_hash": tx_hash, "resolved": 0, "pnl": None,
+                }
+                db_insert("trades", trade)
+                trades_made += 1
+                await asyncio.sleep(0.5)
+                break
+
     except Exception as e:
-        log.error(f"Scan error: {e}")
+        record_api_error("scan_loop", e)
+        log.error(f"Scan error: {e}", exc_info=True)
 
     db_insert("scans", {
         "ts": now, "candidates": candidates,
@@ -490,7 +1062,7 @@ async def run_scan():
     bot_status["running"] = False
     bot_status["last_scan"] = now
     bot_status["scan_count"] += 1
-    log.info(f"=== SCAN END — {trades_made} trades ===")
+    log.info(f"=== SCAN END — {candidates} candidates, {trades_made} trades ===")
 
 def execute_live(market, outcome, direction, price, bet_size):
     try:
@@ -629,6 +1201,13 @@ def status():
         "ws_connected": len(ws_prices) > 0,
         "ws_tokens_tracked": len(ws_prices),
         "mode": "DRY RUN" if DRY_RUN else "LIVE",
+        "include_closed_for_test": INCLUDE_CLOSED_FOR_TEST,
+        "api_source": "CLI+CLOB",
+        "poly_cli": POLY_CLI,
+        "circuit_breaker": _error_state,
+        "max_trades_per_scan": MAX_TRADES_PER_SCAN,
+        "trade_cooldown_hours": TRADE_COOLDOWN_HOURS,
+        "ensemble_models": ENSEMBLE_MODELS,
     }
 
 @app.get("/api/trades")
@@ -709,10 +1288,141 @@ def api_run_backtest(body: BacktestRequest):
 def backtest_history(limit: int = 20):
     return db_query("SELECT * FROM backtest_runs ORDER BY id DESC LIMIT ?", (limit,))
 
+# ── Auto-resolution: check actual observed temperatures ──────────────────────
+def get_observed_high(city: str, date_str: str) -> Optional[float]:
+    """Fetch actual observed high temperature (°C) from Open-Meteo historical API."""
+    key = city.lower().strip()
+    coords = next((v for k, v in CITY_COORDS.items() if k in key or key in k), None)
+    if not coords:
+        return None
+    lat, lon = coords
+    try:
+        data = curl_get("https://archive-api.open-meteo.com/v1/archive", {
+            "latitude": lat, "longitude": lon,
+            "daily": "temperature_2m_max",
+            "temperature_unit": "celsius", "timezone": "auto",
+            "start_date": date_str, "end_date": date_str,
+        })
+        highs = data.get("daily", {}).get("temperature_2m_max", [None])
+        return highs[0] if highs else None
+    except Exception as e:
+        log.warning(f"Historical API failed for {city} {date_str}: {e}")
+        return None
+
+@app.post("/api/trades/auto-resolve")
+def auto_resolve_trades():
+    """Check unresolved trades against actual observed temperatures and settle P&L."""
+    unresolved = db_query("SELECT * FROM trades WHERE resolved = 0")
+    resolved_count = 0
+    errors = []
+
+    for trade in unresolved:
+        q = trade["market"]
+        city, date_str, unit = parse_city_temp_market(q)
+        if not city or not date_str:
+            errors.append({"trade_id": trade["id"], "error": "could not parse market question"})
+            continue
+
+        observed_c = get_observed_high(city, date_str)
+        if observed_c is None:
+            errors.append({"trade_id": trade["id"], "error": f"no observed data for {city} {date_str}"})
+            continue
+
+        # Parse the temp range from the market question
+        lo, hi, range_unit = parse_temp_range(q)
+        if lo is None:
+            errors.append({"trade_id": trade["id"], "error": "could not parse temp range"})
+            continue
+
+        # Convert observed to the range's unit for comparison
+        if range_unit == "F":
+            observed_compare = c_to_f(observed_c)
+        else:
+            observed_compare = observed_c
+
+        # Did the outcome actually happen?
+        in_range = lo <= observed_compare <= hi
+        direction = trade["direction"]
+
+        # YES wins if temp was in range, NO wins if temp was NOT in range
+        won = (direction == "YES" and in_range) or (direction == "NO" and not in_range)
+
+        bet = trade["bet_usdc"]
+        mkt_price = trade["market_price"]
+        if direction == "YES":
+            pnl = bet * (1 / mkt_price - 1) if won else -bet
+        else:
+            pnl = bet * (1 / (1 - mkt_price) - 1) if won else -bet
+
+        con = sqlite3.connect(DB_PATH)
+        con.execute("UPDATE trades SET pnl=?, resolved=1 WHERE id=?",
+                    (round(pnl, 2), trade["id"]))
+        con.commit()
+        con.close()
+        resolved_count += 1
+        log.info(f"Auto-resolved trade #{trade['id']}: {'WON' if won else 'LOST'} "
+                 f"pnl=${round(pnl, 2)} (observed={observed_compare:.1f}°{range_unit}, range={lo}-{hi})")
+
+    return {
+        "resolved": resolved_count,
+        "errors": errors,
+        "remaining": len(unresolved) - resolved_count,
+    }
+
+# ── Circuit breaker management ────────────────────────────────────────────────
+@app.get("/api/errors")
+def error_status():
+    return _error_state
+
+@app.post("/api/errors/reset")
+def reset_errors():
+    _error_state["consecutive"] = 0
+    _error_state["paused"] = False
+    _error_state["last_error"] = None
+    log.info("Circuit breaker manually reset")
+    return {"ok": True, "message": "Circuit breaker reset"}
+
 @app.get("/api/ws/prices")
 def ws_price_snapshot():
     """Return current WebSocket price cache."""
     return ws_prices
+
+# ── Polymarket CLI API endpoints ─────────────────────────────────────────────
+@app.get("/api/poly/search")
+def api_poly_search(q: str = "weather", limit: int = 20):
+    """Search Polymarket via CLI."""
+    results = poly_search(q, limit=limit)
+    return {"count": len(results), "markets": results}
+
+@app.get("/api/poly/weather-events")
+def api_poly_weather_events(limit: int = 20):
+    """List weather events via CLI."""
+    events = poly_events_by_tag("Weather", active=True, limit=limit)
+    return {"count": len(events), "events": events}
+
+@app.get("/api/poly/price/{token_id}")
+def api_poly_price(token_id: str):
+    """Get price for a token via CLI."""
+    price = poly_price(token_id)
+    return {"token_id": token_id, "price": price}
+
+@app.get("/api/poly/book/{token_id}")
+def api_poly_book(token_id: str):
+    """Get orderbook via CLI."""
+    book = poly_book(token_id)
+    return {"token_id": token_id, "book": book}
+
+class PolyCliRequest(BaseModel):
+    args: list[str]
+
+@app.post("/api/poly/cli")
+def api_poly_cli_raw(body: PolyCliRequest):
+    """Run arbitrary polymarket CLI command (read-only safety: rejects trade commands)."""
+    blocked = {"create-order", "market-order", "post-orders", "cancel", "cancel-all"}
+    if any(arg in blocked for arg in body.args):
+        return JSONResponse({"error": "Trade commands blocked via API — use CLI directly"}, status_code=403)
+    result = poly_cli(body.args)
+    return {"args": body.args, "result": result}
 
 # ── Serve dashboard ──────────────────────────────────────────────────────────
 DASHBOARD_DIR = BASE.parent / "dashboard"

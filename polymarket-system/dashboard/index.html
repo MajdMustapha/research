@@ -54,7 +54,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 24px;
+    padding: 12px 24px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
     position: sticky; top: 0; z-index: 100;
@@ -67,7 +67,7 @@
     text-shadow: 0 0 20px rgba(0,255,136,0.5);
   }
   .hdr-logo span { color: var(--muted); }
-  .hdr-right { display: flex; align-items: center; gap: 16px; }
+  .hdr-right { display: flex; align-items: center; gap: 12px; }
   .pill {
     display: flex; align-items: center; gap: 6px;
     padding: 4px 10px; border-radius: 20px;
@@ -81,9 +81,9 @@
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 
   /* Layout */
-  .layout { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 57px); }
+  .layout { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 53px); }
 
-  /* Sidebar */
+  /* Sidebar (desktop) */
   .sidebar {
     border-right: 1px solid var(--border);
     padding: 20px 0;
@@ -107,6 +107,33 @@
     font-family: var(--mono); font-size: 9px;
     letter-spacing: 2px; color: var(--muted); text-transform: uppercase;
   }
+
+  /* Mobile bottom tab bar */
+  .mobile-tabs {
+    display: none;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 100;
+    padding: 0; margin: 0;
+  }
+  .mobile-tabs-inner {
+    display: flex;
+    justify-content: space-around;
+    align-items: stretch;
+    padding: 4px 0;
+  }
+  .mob-tab {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px; padding: 8px 4px;
+    cursor: pointer; border: none; background: none;
+    color: var(--muted); font-family: var(--mono);
+    font-size: 8px; letter-spacing: 1px; text-transform: uppercase;
+    transition: color .15s;
+  }
+  .mob-tab .mob-icon { font-size: 18px; }
+  .mob-tab.active { color: var(--accent); }
 
   /* Main content */
   .main { padding: 24px; overflow-y: auto; }
@@ -228,10 +255,59 @@
   }
   .next-scan span { color: var(--accent2); }
 
-  /* Responsive */
+  /* ── Responsive ──────────────────────────────────────────── */
+
+  /* Tablet: compact sidebar */
+  @media (max-width: 1024px) {
+    .layout { grid-template-columns: 56px 1fr; }
+    .sidebar { padding: 12px 0; overflow: hidden; }
+    .nav-item { justify-content: center; padding: 12px 0; }
+    .nav-item .nav-label { display: none; }
+    .nav-icon { font-size: 18px; width: auto; }
+    .sidebar-sep, .sidebar-label, .sidebar .quick-stats { display: none; }
+    .stats-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  }
+
+  /* Mobile: no sidebar, bottom tabs */
   @media (max-width: 768px) {
-    .layout { grid-template-columns: 1fr; }
+    .layout { grid-template-columns: 1fr; min-height: calc(100vh - 53px - 62px); }
     .sidebar { display: none; }
+    .mobile-tabs { display: block; }
+    .main { padding: 16px; padding-bottom: 80px; }
+
+    .hdr { padding: 10px 16px; }
+    .hdr-logo { font-size: 15px; letter-spacing: 3px; }
+    .hdr-right .hdr-time { display: none; }
+    .pill { font-size: 10px; padding: 3px 8px; }
+
+    .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 20px; }
+    .stat-card { padding: 12px; }
+    .stat-val { font-size: 22px; }
+    .stat-label { font-size: 8px; }
+
+    .section-title { font-size: 10px; letter-spacing: 2px; margin-bottom: 12px; }
+
+    /* Horizontal scroll for tables */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 600px; }
+    th { font-size: 8px; padding: 6px 8px; }
+    td { font-size: 11px; padding: 8px; }
+
+    .log-panel { font-size: 10px; max-height: 260px; padding: 12px; }
+
+    /* Bot status grid */
+    .bot-status-grid { grid-template-columns: 1fr !important; gap: 12px !important; }
+  }
+
+  /* Small mobile */
+  @media (max-width: 480px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+    .stat-card { padding: 10px; }
+    .stat-val { font-size: 18px; }
+    .main { padding: 12px; padding-bottom: 76px; }
+    .hdr { padding: 8px 12px; }
+    .hdr-logo { font-size: 13px; letter-spacing: 2px; }
+    table { min-width: 520px; }
   }
 
   /* Empty state */
@@ -338,7 +414,7 @@ function Overview({ stats, status, onTrigger }) {
 
       <p className="section-title">BOT STATUS</p>
       <div className="table-wrap" style={{marginBottom:24}}>
-        <div style={{padding:'16px 20px', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16}}>
+        <div className="bot-status-grid" style={{padding:'16px 20px', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16}}>
           <div>
             <div style={{fontSize:10,fontFamily:'var(--mono)',color:'var(--muted)',letterSpacing:2,marginBottom:6}}>MODE</div>
             <div className={`badge ${status?.mode === 'LIVE' ? 'live' : 'dry'}`} style={{fontSize:12}}>
@@ -512,7 +588,7 @@ function Config({ config }) {
     <div>
       <p className="section-title">CONFIGURATION</p>
       <div className="table-wrap">
-        <div style={{padding:'20px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+        <div style={{padding:'20px',display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))',gap:20}}>
           {[
             { key:'Mode',          val: config?.dry_run ? 'DRY RUN (no real trades)' : '🔴 LIVE TRADING' },
             { key:'Max Bet/Trade', val: `$${config?.max_bet} USDC` },
@@ -599,26 +675,26 @@ function App() {
         <div className="hdr-logo">POLY<span>//</span>WATCH</div>
         <div className="hdr-right">
           <StatusPill running={status?.running} mode={status?.mode ?? '…'} />
-          <span style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)'}}>
+          <span className="hdr-time" style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)'}}>
             {new Date().toLocaleTimeString('en-GB')}
           </span>
         </div>
       </header>
 
       <div className="layout">
-        {/* Sidebar */}
+        {/* Sidebar (desktop/tablet — hidden on mobile) */}
         <nav className="sidebar">
           <div className="sidebar-label">Navigation</div>
           {NAV.map(n => (
             <div key={n.id} className={`nav-item ${tab===n.id?'active':''}`}
                  onClick={()=>setTab(n.id)}>
               <span className="nav-icon">{n.icon}</span>
-              {n.label}
+              <span className="nav-label">{n.label}</span>
             </div>
           ))}
           <div className="sidebar-sep" />
           <div className="sidebar-label">Quick Stats</div>
-          <div style={{padding:'0 16px'}}>
+          <div className="quick-stats" style={{padding:'0 16px'}}>
             {[
               ['Trades',  stats?.total_trades ?? '…'],
               ['Win Rate', stats?.win_rate ? `${(stats.win_rate*100).toFixed(0)}%` : '—'],
@@ -642,6 +718,19 @@ function App() {
           {tab === 'config'   && <Config config={config} />}
         </main>
       </div>
+
+      {/* Mobile bottom tab bar */}
+      <nav className="mobile-tabs">
+        <div className="mobile-tabs-inner">
+          {NAV.map(n => (
+            <button key={n.id} className={`mob-tab ${tab===n.id?'active':''}`}
+                    onClick={()=>setTab(n.id)}>
+              <span className="mob-icon">{n.icon}</span>
+              {n.label}
+            </button>
+          ))}
+        </div>
+      </nav>
     </>
   );
 }
