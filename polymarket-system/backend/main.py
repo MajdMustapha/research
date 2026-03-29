@@ -1500,8 +1500,15 @@ async def startup():
 # ── API endpoints ─────────────────────────────────────────────────────────────
 @app.get("/api/status")
 def status():
+    # Get scan count from DB (persists across restarts)
+    try:
+        rows = db_query("SELECT COUNT(*) as cnt FROM scans")
+        scan_count = rows[0]["cnt"] if rows else 0
+    except:
+        scan_count = bot_status["scan_count"]
     return {
         **bot_status,
+        "scan_count": scan_count,
         "dry_run": DRY_RUN,
         "max_bet": MAX_BET_USDC,
         "min_edge": MIN_EDGE_PTS,
