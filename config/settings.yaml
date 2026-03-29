@@ -1,0 +1,72 @@
+# config/settings.yaml — COMPLETE VERSION (updated March 29 2026)
+
+system:
+  name: "polymarket-trading-system"
+  log_level: "INFO"
+  data_dir: "data"
+  paper_trade: true          # SET TO false ONLY after >=7 days paper testing
+  paper_bankroll: 1000.0     # Simulated starting bankroll for paper mode
+
+risk:
+  max_position_pct: 0.02
+  max_open_positions: 5
+  min_bankroll_floor: 100.0
+  max_buy_price: 0.95
+  min_buy_price: 0.05
+  min_position_size: 5.0
+  lp_max_market_pct: 0.15
+  daily_loss_limit_pct: 0.10
+
+# Updated March 30 2026: per-category minimums accounting for taker fees
+min_edge_by_category:
+  geopolitics: 0.08          # 0% taker fee — lowest bar, best category
+  politics: 0.13             # 1.00% peak taker + 3pp buffer
+  finance: 0.13              # 1.00% peak taker + 3pp buffer
+  sports: 0.11               # 0.75% peak taker + 3pp buffer
+  economics: 0.16            # 1.50% peak taker + 3pp buffer
+  tech: 0.13
+  culture: 0.13
+  weather: 0.13
+  crypto_directional: 0.17   # 1.80% peak taker — high bar
+  default: 0.13
+
+scanner:
+  news_poll_interval_seconds: 60
+  wallet_poll_interval_seconds: 300
+  anomaly_check_interval_seconds: 120
+  max_analyst_calls_per_hour: 20
+  min_edge_to_escalate: 0.08      # Use geopolitics floor as global pre-filter
+
+analyst:
+  sonnet_model: "claude-sonnet-4-6"
+  haiku_model: "claude-haiku-4-5-20251001"
+  min_confidence_to_signal: 0.65
+  signal_expiry_minutes: 30
+
+lp_manager:
+  quote_spread_cents: 0.02
+  default_quote_size_usdc: 50.0
+  refresh_interval_seconds: 300
+  pull_before_resolution_hours: 24
+  min_market_volume_usd: 500000
+  preferred_categories:          # Ranked by rebate attractiveness
+    - finance                    # 50% rebate — highest priority
+    - politics                   # 25% rebate
+    - sports                     # existing rebate
+  avoid_as_taker:
+    - crypto                     # 1.80% peak — never take, only make
+
+wallet_basket:
+  consensus_threshold_pct: 0.70
+  consensus_min_wallets: 3
+  lookback_hours: 48
+  signal_cooldown_hours: 24
+
+telegram:
+  approval_window_minutes: 30
+  daily_report_utc_hour: 0
+
+api_rate_limits:
+  max_orders_per_minute: 50      # CLI limit is 60 — leave 10 margin
+  ws_reconnect_max_attempts: 10
+  ws_reconnect_base_delay_seconds: 2

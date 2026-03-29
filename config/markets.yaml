@@ -1,0 +1,23 @@
+# config/markets.yaml — Tracked markets + LP market configuration
+
+# Markets to monitor for directional trading signals
+tracked_markets: []
+  # Example:
+  # - market_id: "0x..."
+  #   question: "Will X happen by Y date?"
+  #   category: "geopolitics"
+  #   yes_token_id: "48331..."
+  #   no_token_id: "48332..."
+  #   keywords: ["keyword1", "keyword2"]
+
+# LP markets for passive quoting (Layer 3)
+lp_markets: []
+  # Example:
+  # - market_id: "..."
+  #   condition_id: "0x..."
+  #   yes_token_id: "48331..."
+  #   no_token_id: "48332..."
+  #   category: "finance"          # Prioritise finance (50% rebate)
+  #   min_daily_volume: 500000     # $500K minimum
+  #   max_spread_to_quote: 0.04    # Don't quote if spread >4 cents
+  #   pull_hours_before_resolution: 24
