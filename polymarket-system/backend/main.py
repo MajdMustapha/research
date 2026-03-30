@@ -33,10 +33,12 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("backend")
 
 DRY_RUN        = os.getenv("DRY_RUN", "true").lower() == "true"
-MAX_BET_USDC   = float(os.getenv("MAX_BET_USDC", "5"))
+MAX_BET_USDC   = float(os.getenv("MAX_BET_USDC", "2"))
 MIN_EDGE_PTS   = float(os.getenv("MIN_EDGE_POINTS", "15"))
+MAX_EDGE_PTS   = float(os.getenv("MAX_EDGE_POINTS", "30"))   # skip overconfident trades
 KELLY_FRACTION = float(os.getenv("KELLY_FRACTION", "0.25"))  # quarter-Kelly default
 BANKROLL_USDC  = float(os.getenv("BANKROLL_USDC", "100"))
+NO_YES_BETS    = os.getenv("NO_YES_BETS", "true").lower() == "true"  # skip YES direction
 PRIVATE_KEY    = os.getenv("POLY_PRIVATE_KEY", "")
 FUNDER_ADDR    = os.getenv("POLY_FUNDER_ADDRESS", "")
 # A/B test: maker mode uses limit orders (post-only) instead of market orders (taker)
@@ -1151,6 +1153,17 @@ async def run_scan():
                     if true_edge * 100 < MIN_EDGE_PTS:
                         continue
 
+                    # Skip overconfident trades (edge > MAX_EDGE_PTS)
+                    # Backtest shows 30+ pt edge trades have 27% win rate
+                    if true_edge * 100 > MAX_EDGE_PTS:
+                        log.info(f"  Skipped (edge {true_edge*100:.1f} > {MAX_EDGE_PTS} cap): {q[:55]}")
+                        continue
+
+                    # Skip YES bets — backtest shows 22% win rate on YES direction
+                    if NO_YES_BETS and direction == "YES":
+                        log.info(f"  Skipped (YES direction disabled): {q[:55]}")
+                        continue
+
                     # EV calc
                     if direction == "YES":
                         ev = my_p * (1 - mkt_price) - (1 - my_p) * mkt_price
@@ -1583,7 +1596,9 @@ def resolve_trade(body: PnlUpdate):
 def get_config():
     return {
         "dry_run": DRY_RUN, "max_bet": MAX_BET_USDC,
-        "min_edge": MIN_EDGE_PTS, "kelly_fraction": KELLY_FRACTION,
+        "min_edge": MIN_EDGE_PTS, "max_edge": MAX_EDGE_PTS,
+        "no_yes_bets": NO_YES_BETS,
+        "kelly_fraction": KELLY_FRACTION,
         "bankroll": BANKROLL_USDC,
         "scan_interval_min": int(os.getenv("SCAN_INTERVAL_MINUTES", "15")),
     }
