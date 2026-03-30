@@ -1,0 +1,16 @@
+.env
+data/*.db
+data/agent_state.json
+data/cache/
+data/backtest_checkpoint.json
+data/config_city_overrides.json
+data/*.html
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/

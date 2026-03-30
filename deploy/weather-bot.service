@@ -1,0 +1,27 @@
+# /etc/systemd/system/weather-bot.service
+[Unit]
+Description=Polymarket Weather Bot (Claude Code agent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/weather-bot
+EnvironmentFile=/etc/environment
+ExecStart=/usr/bin/claude-code \
+    --model claude-opus-4-5 \
+    --max-turns 50 \
+    --non-interactive \
+    --print \
+    "Run one agent cycle of the weather bot. Read data/agent_state.json, \
+     check for due model drops, scan active cities for mispricings, \
+     execute any approved ladders, check open positions for early-close \
+     or resolution, update state, and exit. If LIVE_MODE is false, \
+     paper-trade only. Never set LIVE_MODE=true yourself."
+StandardOutput=append:/var/log/weather-bot/agent.log
+StandardError=append:/var/log/weather-bot/agent-error.log
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

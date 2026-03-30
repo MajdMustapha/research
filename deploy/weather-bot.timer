@@ -1,0 +1,27 @@
+# /etc/systemd/system/weather-bot.timer
+[Unit]
+Description=Polymarket Weather Bot trigger
+Requires=weather-bot.service
+
+[Timer]
+# Fire 30 minutes after each GFS run (00:30, 06:30, 12:30, 18:30 UTC)
+OnCalendar=*-*-* 00:30:00 UTC
+OnCalendar=*-*-* 06:30:00 UTC
+OnCalendar=*-*-* 12:30:00 UTC
+OnCalendar=*-*-* 18:30:00 UTC
+# Position monitoring every 5 minutes between model drops
+OnCalendar=*-*-* *:05:00 UTC
+OnCalendar=*-*-* *:10:00 UTC
+OnCalendar=*-*-* *:15:00 UTC
+OnCalendar=*-*-* *:20:00 UTC
+OnCalendar=*-*-* *:25:00 UTC
+OnCalendar=*-*-* *:35:00 UTC
+OnCalendar=*-*-* *:40:00 UTC
+OnCalendar=*-*-* *:45:00 UTC
+OnCalendar=*-*-* *:50:00 UTC
+OnCalendar=*-*-* *:55:00 UTC
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

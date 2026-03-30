@@ -1,0 +1,26 @@
+# /etc/systemd/system/weather-bot-backtest.service
+# One-shot, manual trigger only:
+#   sudo systemctl start weather-bot-backtest.service
+[Unit]
+Description=Weather Bot Backtest (one-shot, manual trigger only)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/weather-bot
+EnvironmentFile=/etc/environment
+ExecStart=/usr/bin/claude-code \
+    --model claude-opus-4-5 \
+    --max-turns 500 \
+    --non-interactive \
+    --print \
+    "Run the full weather bot backtest: python main.py backtest --days 180 --split-date 30. \
+     Generate data/backtest_report.html. Report whether gate_passed is True or False. \
+     Do not start live trading."
+StandardOutput=append:/var/log/weather-bot/backtest.log
+StandardError=append:/var/log/weather-bot/backtest-error.log
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target
