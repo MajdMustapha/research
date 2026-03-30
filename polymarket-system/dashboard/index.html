@@ -1161,9 +1161,9 @@ function App() {
       const [st, sta, tr, si, sc, cf, res] = await Promise.all([
         fetch(`${API}/status`).then(r=>r.json()),
         fetch(`${API}/stats`).then(r=>r.json()),
-        fetch(`${API}/trades`).then(r=>r.json()),
-        fetch(`${API}/signals`).then(r=>r.json()),
-        fetch(`${API}/scans`).then(r=>r.json()),
+        fetch(`${API}/trades?limit=500`).then(r=>r.json()),
+        fetch(`${API}/signals?limit=500`).then(r=>r.json()),
+        fetch(`${API}/scans?limit=200`).then(r=>r.json()),
         fetch(`${API}/config`).then(r=>r.json()),
         fetch(`${API}/resolutions`).then(r=>r.json()),
       ]);

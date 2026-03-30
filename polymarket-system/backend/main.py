@@ -1640,15 +1640,48 @@ WU_STATIONS = {
     "tel aviv":      "il/tel-aviv/LLBG",       # Ben Gurion (NOAA)
     "taipei":        "tw/taipei/RCTP",         # Taoyuan (NOAA)
     "hong kong":     "hk/hong-kong/VHHH",      # HK Observatory
+    "buenos aires":  "ar/ezeiza/SAEZ",         # Minister Pistarini Intl
+    "beijing":       "cn/beijing/ZBAA",        # Capital Intl
+    "chongqing":     "cn/chongqing/ZUCK",      # Jiangbei Intl
+    "lucknow":       "in/lucknow/VILK",        # Chaudhary Charan Singh
 }
 
 # Coordinates updated to match Polymarket's resolution stations (not forecast stations)
+# These are used by get_observed_high() for the Open-Meteo archive API
 WU_STATION_COORDS = {
-    "london":        (51.5048, 0.0495),    # EGLC London City (not Heathrow!)
-    "seoul":         (37.4602, 126.4407),   # RKSI Incheon (not Gimpo!)
-    "dallas":        (32.8481, -96.8512),   # KDAL Love Field (not DFW!)
-    "houston":       (29.6454, -95.2789),   # KHOU Hobby (not Bush IAH!)
-    "tokyo":         (35.5494, 139.7798),   # RJTT Haneda
+    "london":        (51.5048, 0.0495),      # EGLC London City
+    "seoul":         (37.4602, 126.4407),     # RKSI Incheon
+    "dallas":        (32.8481, -96.8512),     # KDAL Love Field
+    "houston":       (29.6454, -95.2789),     # KHOU Hobby
+    "tokyo":         (35.5494, 139.7798),     # RJTT Haneda
+    "atlanta":       (33.6407, -84.4277),     # KATL Hartsfield-Jackson
+    "new york city": (40.7769, -73.8740),     # KLGA LaGuardia
+    "nyc":           (40.7769, -73.8740),     # KLGA LaGuardia
+    "paris":         (49.0097, 2.5479),       # LFPG CDG
+    "chicago":       (41.9742, -87.9073),     # KORD O'Hare
+    "miami":         (25.7959, -80.2870),     # KMIA Miami Intl
+    "los angeles":   (33.9425, -118.4081),    # KLAX
+    "san francisco": (37.6213, -122.3790),    # KSFO
+    "seattle":       (47.4502, -122.3088),    # KSEA Sea-Tac
+    "ankara":        (40.1281, 32.9951),      # LTAC Esenboğa
+    "madrid":        (40.4983, -3.5676),      # LEMD Barajas
+    "milan":         (45.6301, 8.7231),       # LIMC Malpensa
+    "munich":        (48.3537, 11.7750),      # EDDM
+    "warsaw":        (52.1657, 20.9671),      # EPWA Chopin
+    "singapore":     (1.3502, 103.9944),      # WSSS Changi
+    "shanghai":      (31.1443, 121.8052),     # ZSPD Pudong
+    "shenzhen":      (22.6393, 113.8107),     # ZGSZ Bao'an
+    "toronto":       (43.6772, -79.6306),     # CYYZ Pearson
+    "wellington":    (-41.3272, 174.8046),    # NZWN
+    "sao paulo":     (-23.4356, -46.4731),    # SBGR Guarulhos
+    "austin":        (30.1975, -97.6664),     # KAUS Bergstrom
+    "tel aviv":      (32.0055, 34.8854),      # LLBG Ben Gurion
+    "taipei":        (25.0797, 121.2342),     # RCTP Taoyuan
+    "hong kong":     (22.3080, 113.9185),     # VHHH
+    "buenos aires":  (-34.8222, -58.5358),    # SAEZ Minister Pistarini
+    "beijing":       (40.0799, 116.6031),     # ZBAA Capital Intl
+    "chongqing":     (29.7192, 106.6414),     # ZUCK Jiangbei
+    "lucknow":       (26.7606, 80.8893),      # VILK Chaudhary Charan Singh
 }
 
 _observed_cache: dict[tuple[str, str], Optional[float]] = {}  # (city_key, date) -> °C or None
@@ -1694,10 +1727,36 @@ def get_observed_high(city: str, date_str: str) -> Optional[float]:
         log.warning(f"Historical API failed for {city} {date_str}: {e}")
         return None
 
+def _check_poly_resolution(slug: str) -> Optional[bool]:
+    """Check Polymarket's actual resolution for a market.
+    Returns True if YES won, False if NO won, None if not yet resolved."""
+    if not slug:
+        return None
+    try:
+        data = curl_get(f"https://gamma-api.polymarket.com/markets?slug={slug}")
+        if not data:
+            return None
+        m = data[0] if isinstance(data, list) else data
+        outcome_prices = m.get("outcomePrices", "[]")
+        if isinstance(outcome_prices, str):
+            outcome_prices = json.loads(outcome_prices)
+        if not outcome_prices or len(outcome_prices) < 2:
+            return None
+        yes_price = float(outcome_prices[0])
+        # Only trust clear resolution (0 or 1), not mid-price
+        if yes_price > 0.9:
+            return True
+        elif yes_price < 0.1:
+            return False
+        return None  # not resolved yet
+    except Exception as e:
+        log.debug(f"Poly resolution check failed for {slug}: {e}")
+        return None
+
 def _do_auto_resolve() -> dict:
-    """Check unresolved trades against actual observed temperatures and settle P&L.
-    Called automatically at the start of each scan cycle (observed data has ~1-2 day lag)
-    and also available via POST /api/trades/auto-resolve."""
+    """Check unresolved trades against Polymarket's actual resolution first,
+    then fall back to observed temperatures. This ensures our P&L matches
+    Polymarket's actual market outcomes."""
     unresolved = db_query("SELECT * FROM trades WHERE resolved = 0")
     if not unresolved:
         return {"resolved": 0, "errors": [], "remaining": 0}
@@ -1720,32 +1779,48 @@ def _do_auto_resolve() -> dict:
         except:
             pass
 
-        observed_c = get_observed_high(city, date_str)
-        if observed_c is None:
-            errors.append({"trade_id": trade["id"], "error": f"no observed data for {city} {date_str}"})
-            continue
+        # PRIMARY: check Polymarket's actual resolution
+        slug = trade.get("market_slug")
+        poly_yes_won = _check_poly_resolution(slug)
 
-        # Parse the temp range from the market question
-        lo, hi, range_unit = parse_temp_range(q)
-        if lo is None:
-            errors.append({"trade_id": trade["id"], "error": "could not parse temp range"})
-            continue
+        won = None
+        source = None
+        observed_compare = None
+        range_unit = "C"
 
-        # Convert observed to the range's unit for comparison
-        if range_unit == "F":
-            observed_compare = c_to_f(observed_c)
+        if poly_yes_won is not None:
+            # Trust Polymarket's resolution — this is what actually pays out
+            direction = trade["direction"]
+            won = (direction == "YES" and poly_yes_won) or (direction == "NO" and not poly_yes_won)
+            source = "polymarket"
         else:
-            observed_compare = observed_c
+            # FALLBACK: use Open-Meteo observed temperature
+            observed_c = get_observed_high(city, date_str)
+            if observed_c is None:
+                errors.append({"trade_id": trade["id"], "error": f"no observed data for {city} {date_str}"})
+                continue
 
-        # Did the outcome actually happen?
-        in_range = lo <= observed_compare <= hi
-        direction = trade["direction"]
+            lo, hi, range_unit = parse_temp_range(q)
+            if lo is None:
+                errors.append({"trade_id": trade["id"], "error": "could not parse temp range"})
+                continue
 
-        # YES wins if temp was in range, NO wins if temp was NOT in range
-        won = (direction == "YES" and in_range) or (direction == "NO" and not in_range)
+            if range_unit == "F":
+                observed_compare = c_to_f(observed_c)
+            else:
+                observed_compare = observed_c
+
+            in_range = lo <= observed_compare <= hi
+            direction = trade["direction"]
+            won = (direction == "YES" and in_range) or (direction == "NO" and not in_range)
+            source = "open-meteo"
+
+        if won is None:
+            continue
 
         bet = trade["bet_usdc"]
         mkt_price = trade["market_price"]
+        direction = trade["direction"]
         if direction == "YES":
             pnl = bet * (1 / mkt_price - 1) if won else -bet
         else:
@@ -1757,8 +1832,10 @@ def _do_auto_resolve() -> dict:
         con.commit()
         con.close()
         resolved_count += 1
+
+        obs_str = f"observed={observed_compare:.1f}°{range_unit}" if observed_compare else "no obs"
         log.info(f"Auto-resolved trade #{trade['id']}: {'WON' if won else 'LOST'} "
-                 f"pnl=${round(pnl, 2)} (observed={observed_compare:.1f}°{range_unit}, range={lo}-{hi})")
+                 f"pnl=${round(pnl, 2)} via {source} ({obs_str})")
 
     return {
         "resolved": resolved_count,
@@ -1773,7 +1850,7 @@ def auto_resolve_trades():
 @app.get("/api/resolutions")
 def get_resolutions():
     """Show observed temperatures and resolution status for all active trades."""
-    trades = db_query("SELECT * FROM trades ORDER BY id DESC LIMIT 50")
+    trades = db_query("SELECT * FROM trades ORDER BY id DESC LIMIT 500")
     results = []
     for t in trades:
         city, date_str, unit = parse_city_temp_market(t["market"])
@@ -1813,6 +1890,74 @@ def get_resolutions():
             "slug": t.get("market_slug"),
         })
     return results
+
+# ── Cross-check against Polymarket's actual resolution ─────────────────────────
+@app.post("/api/trades/cross-check")
+def cross_check_resolutions():
+    """Compare our resolution against Polymarket's actual outcome prices.
+    Fetches each resolved trade's market from Gamma API and checks if
+    Polymarket's YES/NO resolution matches ours."""
+    trades = db_query("SELECT * FROM trades WHERE resolved = 1 AND market_slug IS NOT NULL")
+    results = []
+    mismatches = []
+
+    for t in trades:
+        slug = t.get("market_slug")
+        if not slug:
+            continue
+        try:
+            data = curl_get(f"https://gamma-api.polymarket.com/markets?slug={slug}")
+            if not data:
+                continue
+            m = data[0] if isinstance(data, list) else data
+            outcome_prices = m.get("outcomePrices", "[]")
+            if isinstance(outcome_prices, str):
+                outcome_prices = json.loads(outcome_prices)
+            if not outcome_prices or len(outcome_prices) < 2:
+                continue
+
+            yes_price = float(outcome_prices[0])
+            poly_yes_won = yes_price > 0.5
+
+            # Our resolution
+            city, date_str, unit = parse_city_temp_market(t["market"])
+            lo, hi, runit = parse_temp_range(t["market"])
+            obs_c = get_observed_high(city, date_str) if city and date_str else None
+
+            our_in_range = None
+            if obs_c is not None and lo is not None:
+                if runit == "F":
+                    our_in_range = lo <= c_to_f(obs_c) <= hi
+                else:
+                    our_in_range = lo <= obs_c <= hi
+
+            our_yes_won = our_in_range  # YES wins if temp is in range
+
+            match = poly_yes_won == our_yes_won if our_yes_won is not None else None
+            entry = {
+                "trade_id": t["id"],
+                "city": city,
+                "date": date_str,
+                "range": f"{lo}-{hi}°{runit}" if lo is not None else None,
+                "direction": t["direction"],
+                "our_outcome": "WIN" if t.get("pnl", 0) >= 0 else "LOSS",
+                "our_observed": round(obs_c, 1) if obs_c is not None else None,
+                "poly_yes_won": poly_yes_won,
+                "poly_resolution_source": m.get("resolutionSource"),
+                "match": match,
+            }
+            results.append(entry)
+            if match is False:
+                mismatches.append(entry)
+        except Exception as e:
+            log.warning(f"Cross-check failed for {slug}: {e}")
+
+    return {
+        "checked": len(results),
+        "mismatches": len(mismatches),
+        "mismatch_details": mismatches,
+        "all": results,
+    }
 
 # ── Circuit breaker management ────────────────────────────────────────────────
 @app.get("/api/errors")
