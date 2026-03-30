@@ -1,0 +1,59 @@
+exchange:
+  name: binance
+  api_key: ${BINANCE_API_KEY}
+  api_secret: ${BINANCE_API_SECRET}
+  testnet: true
+
+trading:
+  symbols: [BTC/USDT, ETH/USDT, SOL/USDT]
+  timeframe: 1h
+  max_open_positions: 3
+  portfolio_value_usd: 10000
+
+strategy:
+  regime:
+    adx_period: 14
+    adx_trending_threshold: 25
+    adx_ranging_threshold: 20
+  momentum:
+    ema_fast: 20
+    ema_slow: 50
+    volume_sma_period: 20
+    volume_multiplier: 1.2
+  mean_reversion:
+    rsi_period: 14
+    rsi_oversold: 35
+    rsi_overbought: 65
+    bb_period: 20
+    bb_std: 2.0
+
+risk:
+  max_position_pct: 0.02
+  atr_period: 14
+  atr_stop_multiplier: 1.5
+  daily_loss_limit_pct: 0.05
+  max_drawdown_pct: 0.15
+  news_blackout_minutes: 30
+
+backtest:
+  fee_rate: 0.001
+  slippage_rate: 0.0005
+  train_months: 6
+  test_months: 2
+  sharpe_gate: 0.8
+  pass_rate: 0.80
+
+signals:
+  use_funding_rate: false
+  use_open_interest: false
+  use_fear_greed: false
+
+reporting:
+  dashboard_port: 8080
+  db_path: trades.db
+  telegram_bot_token: ${TELEGRAM_BOT_TOKEN}
+  telegram_chat_id: ${TELEGRAM_CHAT_ID}
+  telegram_enabled: false
+
+monitoring:
+  health_check_interval: 300
