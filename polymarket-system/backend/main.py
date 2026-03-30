@@ -558,8 +558,18 @@ def fetch_weather_markets() -> list:
     log.info(f"Fetched {len(markets)} weather markets via {source} ({open_count} open)")
     return markets
 
-# ── Improvement 1: GFS 31-member ensemble forecast ──────────────────────────
+# ── Multi-model ensemble forecast with agreement check ───────────────────────
 ENSEMBLE_MODELS = ["gfs_seamless", "ecmwf_ifs025"]
+DETERMINISTIC_MODELS = ["best_match", "icon_seamless", "gem_seamless"]
+# Model weights for per-model probability averaging (cookeikopf approach)
+MODEL_WEIGHTS = {
+    "ecmwf_ifs025": 0.25,   # Most accurate global model
+    "gfs_seamless": 0.20,   # Good baseline
+    "best_match": 0.20,     # Open-Meteo's auto-selected best
+    "icon_seamless": 0.20,  # DWD German model, good for Europe
+    "gem_seamless": 0.15,   # Canadian model
+}
+MIN_MODEL_AGREEMENT = float(os.getenv("MIN_MODEL_AGREEMENT", "0.6"))  # 60% models must agree on direction
 
 def _fetch_ensemble_model(lat: float, lon: float, date_str: str, model: str) -> list[float]:
     """Fetch ensemble members for a single model. Returns list of temps (°C).
@@ -574,13 +584,11 @@ def _fetch_ensemble_model(lat: float, lon: float, date_str: str, model: str) -> 
         })
         d = data.get("daily", {})
         members = []
-        # Extract individual ensemble members (temperature_2m_max_member01, etc.)
         for key, vals in d.items():
             if key.startswith("temperature_2m_max_member") and isinstance(vals, list):
                 for v in vals:
                     if v is not None:
                         members.append(float(v))
-        # If no member keys found, fall back to the mean value
         if not members:
             highs = d.get("temperature_2m_max", [])
             if highs:
@@ -590,20 +598,57 @@ def _fetch_ensemble_model(lat: float, lon: float, date_str: str, model: str) -> 
         log.warning(f"Ensemble model {model} failed: {e}")
         return []
 
+def _fetch_deterministic_model(lat: float, lon: float, date_str: str, model: str) -> Optional[float]:
+    """Fetch single deterministic forecast temperature (°C)."""
+    try:
+        data = curl_get("https://api.open-meteo.com/v1/forecast", {
+            "latitude": lat, "longitude": lon,
+            "daily": "temperature_2m_max",
+            "temperature_unit": "celsius", "timezone": "auto",
+            "start_date": date_str, "end_date": date_str,
+            "models": model
+        })
+        highs = data.get("daily", {}).get("temperature_2m_max", [])
+        return float(highs[0]) if highs and highs[0] is not None else None
+    except Exception as e:
+        log.debug(f"Deterministic model {model} failed: {e}")
+        return None
+
 def get_ensemble_forecast(city: str, date_str: str):
-    """Fetch multi-model ensemble (GFS + ECMWF) from Open-Meteo for calibrated probabilities."""
+    """Fetch multi-model ensemble (GFS + ECMWF) + deterministic models.
+    Stores per-model data for agreement checking."""
     key = city.lower().strip()
-    coords = next((v for k, v in CITY_COORDS.items() if k in key or key in k), None)
+    # Use resolution station coords if available, else city coords
+    coords = WU_STATION_COORDS.get(key)
+    if not coords:
+        coords = next((v for k, v in CITY_COORDS.items() if k in key or key in k), None)
     if not coords: return None
     lat, lon = coords
 
     all_members = []
     sources = []
+    per_model = {}  # model -> {"members": [...], "mean": float}
+
+    # Ensemble models (many members each)
     for model in ENSEMBLE_MODELS:
         members = _fetch_ensemble_model(lat, lon, date_str, model)
         if members:
             sources.append(f"{model}({len(members)})")
             all_members.extend(members)
+            per_model[model] = {
+                "members": members,
+                "mean": round(statistics.mean(members), 1),
+            }
+
+    # Deterministic models (single value each)
+    for model in DETERMINISTIC_MODELS:
+        temp = _fetch_deterministic_model(lat, lon, date_str, model)
+        if temp is not None:
+            sources.append(f"{model}(1)")
+            per_model[model] = {
+                "members": [temp],
+                "mean": round(temp, 1),
+            }
 
     if not all_members:
         return None
@@ -616,7 +661,8 @@ def get_ensemble_forecast(city: str, date_str: str):
         "min": round(min(all_members), 1),
         "max": round(max(all_members), 1),
         "count": len(all_members),
-        "source": f"Open-Meteo Ensemble: {' + '.join(sources)}"
+        "source": f"Open-Meteo: {' + '.join(sources)}",
+        "per_model": per_model,
     }
 
 def get_forecast(city: str, date_str: str):
@@ -710,29 +756,90 @@ def ensemble_prob_dist(forecast: dict):
         total = sum(raw.values())
         return {k: round(v / total, 4) for k, v in raw.items()}
 
+def _model_prob_in_range(members: list[float], lo_c: float, hi_c: float) -> float:
+    """Probability for a single model's members."""
+    if len(members) >= 5:
+        count = sum(1 for m in members if lo_c <= m <= hi_c)
+        return count / len(members)
+    elif len(members) == 1:
+        # Single deterministic value: use Gaussian with typical forecast error (~1.5°C)
+        mu = members[0]
+        sigma = 1.5
+        from math import erf
+        def phi(x):
+            return 0.5 * (1 + erf((x - mu) / (sigma * math.sqrt(2))))
+        p_lo = phi(lo_c) if lo_c > -900 else 0.0
+        p_hi = phi(hi_c) if hi_c < 900 else 1.0
+        return max(0, p_hi - p_lo)
+    else:
+        return 0.0
+
 def ensemble_prob_in_range(forecast: dict, lo: float, hi: float, unit: str = "C") -> float:
-    """Calculate probability that temperature falls in [lo, hi] range.
-    If unit='F', converts range to Celsius before comparing against ensemble members (which are °C)."""
+    """Calculate weighted probability from multiple models.
+    Each model contributes independently via MODEL_WEIGHTS, preventing
+    large ensembles from drowning out deterministic models."""
     if unit == "F":
         lo_c = f_to_c(lo) if lo > -900 else -900
         hi_c = f_to_c(hi) if hi < 900 else 900
     else:
         lo_c, hi_c = lo, hi
 
-    members = forecast["members"]
-    if len(members) >= 5:
-        count = sum(1 for m in members if lo_c <= m <= hi_c)
-        return round(count / len(members), 4)
+    per_model = forecast.get("per_model", {})
+
+    if per_model and len(per_model) >= 2:
+        # Weighted average across models (cookeikopf approach)
+        weighted_sum = 0.0
+        weight_total = 0.0
+        for model_name, model_data in per_model.items():
+            w = MODEL_WEIGHTS.get(model_name, 0.15)
+            p = _model_prob_in_range(model_data["members"], lo_c, hi_c)
+            weighted_sum += w * p
+            weight_total += w
+        return round(weighted_sum / weight_total, 4) if weight_total > 0 else 0.0
     else:
-        # Gaussian fallback
-        mu = forecast["mean"]
-        sigma = max(forecast["stdev"], 0.5)
-        from math import erf
-        def phi(x):
-            return 0.5 * (1 + erf((x - mu) / (sigma * math.sqrt(2))))
-        p_lo = phi(lo_c) if lo_c > -900 else 0.0
-        p_hi = phi(hi_c) if hi_c < 900 else 1.0
-        return round(max(0, p_hi - p_lo), 4)
+        # Fallback: simple member counting
+        members = forecast["members"]
+        if len(members) >= 5:
+            count = sum(1 for m in members if lo_c <= m <= hi_c)
+            return round(count / len(members), 4)
+        else:
+            mu = forecast["mean"]
+            sigma = max(forecast["stdev"], 0.5)
+            from math import erf
+            def phi(x):
+                return 0.5 * (1 + erf((x - mu) / (sigma * math.sqrt(2))))
+            p_lo = phi(lo_c) if lo_c > -900 else 0.0
+            p_hi = phi(hi_c) if hi_c < 900 else 1.0
+            return round(max(0, p_hi - p_lo), 4)
+
+def check_model_agreement(forecast: dict, lo: float, hi: float, unit: str = "C", direction: str = "NO") -> tuple[bool, float]:
+    """Check if models agree on the trade direction.
+    Returns (agreed, agreement_ratio).
+    For NO trades: models agree if most say temp is outside range.
+    For YES trades: models agree if most say temp is inside range."""
+    per_model = forecast.get("per_model", {})
+    if not per_model or len(per_model) < 2:
+        return True, 1.0  # can't check, allow trade
+
+    if unit == "F":
+        lo_c = f_to_c(lo) if lo > -900 else -900
+        hi_c = f_to_c(hi) if hi < 900 else 900
+    else:
+        lo_c, hi_c = lo, hi
+
+    agree_count = 0
+    total_models = len(per_model)
+
+    for model_name, model_data in per_model.items():
+        model_mean = model_data["mean"]
+        in_range = lo_c <= model_mean <= hi_c
+        if direction == "NO" and not in_range:
+            agree_count += 1
+        elif direction == "YES" and in_range:
+            agree_count += 1
+
+    agreement = agree_count / total_models
+    return agreement >= MIN_MODEL_AGREEMENT, round(agreement, 2)
 
 # ── Improvement 2: Kelly criterion bet sizing ────────────────────────────────
 def kelly_bet(my_prob: float, market_price: float, direction: str) -> float:
@@ -1162,6 +1269,12 @@ async def run_scan():
                     # Skip YES bets — backtest shows 22% win rate on YES direction
                     if NO_YES_BETS and direction == "YES":
                         log.info(f"  Skipped (YES direction disabled): {q[:55]}")
+                        continue
+
+                    # Model agreement check — require majority of models to agree
+                    agreed, agreement = check_model_agreement(forecast, lo, hi, unit, direction)
+                    if not agreed:
+                        log.info(f"  Skipped (model agreement {agreement:.0%} < {MIN_MODEL_AGREEMENT:.0%}): {q[:55]}")
                         continue
 
                     # EV calc
