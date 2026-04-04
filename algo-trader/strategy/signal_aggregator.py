@@ -39,20 +39,20 @@ class SignalAggregator:
         self.atr_period = config["risk"]["atr_period"]
         self.atr_stop_multiplier = config["risk"]["atr_stop_multiplier"]
 
-    def get_signal(self, df: pd.DataFrame) -> Signal:
+    def get_signal(self, df: pd.DataFrame, current_position_side: str | None = None) -> Signal:
         """Get trading signal for the latest bar."""
         regime = self.regime_detector.detect(df)
 
         if regime == RegimeDetector.TRENDING:
-            direction = self.momentum.signal(df)
+            direction = self.momentum.signal(df, current_position_side=current_position_side)
         elif regime == RegimeDetector.RANGING:
-            direction = self.mean_reversion.signal(df)
+            direction = self.mean_reversion.signal(df, current_position_side=current_position_side)
         else:
             direction = "HOLD"
 
-        # Calculate stop distance from ATR
+        # Calculate stop distance from ATR (not needed for EXIT or HOLD)
         stop_distance = 0.0
-        if direction != "HOLD" and len(df) >= self.atr_period + 1:
+        if direction not in ("HOLD", "EXIT") and len(df) >= self.atr_period + 1:
             atr_values = atr(df["high"], df["low"], df["close"], self.atr_period)
             latest_atr = atr_values.iloc[-1]
             if not pd.isna(latest_atr):
@@ -74,8 +74,8 @@ class SignalAggregator:
 
     def as_strategy_fn(self):
         """Return a callable compatible with BacktestEngine."""
-        def strategy_fn(df: pd.DataFrame) -> dict:
-            signal = self.get_signal(df)
+        def strategy_fn(df: pd.DataFrame, position_side: str | None = None) -> dict:
+            signal = self.get_signal(df, current_position_side=position_side)
             return {
                 "signal": signal.direction,
                 "stop_distance": signal.stop_distance,

@@ -1,7 +1,7 @@
 """Event-driven backtesting engine. Replays candles one by one with no lookahead."""
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
 
@@ -31,6 +31,8 @@ class Position:
     entry_price: float
     stop_price: float
     entry_time: datetime
+    entry_fee: float = 0.0
+    stop_distance: float = 0.0
 
 
 @dataclass
@@ -44,8 +46,9 @@ class BacktestEngine:
     """
     Candle-by-candle backtester.
 
-    strategy_fn: Callable that takes (df_up_to_current_bar) and returns
-                 a dict with keys: signal ("BUY"/"SELL"/"HOLD"), stop_distance (float).
+    strategy_fn: Callable that takes (df_up_to_current_bar, position_side=None)
+                 and returns dict with keys: signal ("BUY"/"SELL"/"HOLD"/"EXIT"),
+                 stop_distance (float).
     """
 
     def __init__(self, config: dict, strategy_fn: Callable, initial_capital: float = 10000.0):
@@ -55,9 +58,32 @@ class BacktestEngine:
         self.strategy_fn = strategy_fn
         self.initial_capital = initial_capital
 
+    def _close_position(self, position: Position, exit_price: float,
+                        exit_time: datetime, symbol: str) -> Trade:
+        """Close a position and return the completed Trade with correct fee handling."""
+        exit_fee = exit_price * position.size * self.fee_rate
+        total_fees = position.entry_fee + exit_fee
+
+        if position.side == "BUY":
+            pnl = (exit_price - position.entry_price) * position.size - total_fees
+        else:
+            pnl = (position.entry_price - exit_price) * position.size - total_fees
+
+        return Trade(
+            symbol=symbol,
+            side=position.side,
+            entry_price=position.entry_price,
+            exit_price=exit_price,
+            entry_time=position.entry_time,
+            exit_time=exit_time,
+            size=position.size,
+            pnl=pnl,
+            fees=total_fees,
+        )
+
     def run(self, df: pd.DataFrame, symbol: str = "BTC/USDT") -> BacktestResult:
         """Run backtest on OHLCV DataFrame. Returns BacktestResult."""
-        cash = self.initial_capital
+        realized_pnl = 0.0
         position: Position | None = None
         trades: list[Trade] = []
         equity_values: list[float] = []
@@ -66,7 +92,7 @@ class BacktestEngine:
             row = df.iloc[i]
             current_price = row["close"]
 
-            # Calculate current equity
+            # 1. Compute equity = initial_capital + realized_pnl + unrealized
             unrealized = 0.0
             if position is not None:
                 if position.side == "BUY":
@@ -74,12 +100,24 @@ class BacktestEngine:
                 else:
                     unrealized = (position.entry_price - current_price) * position.size
 
-            equity = cash + unrealized
+            equity = self.initial_capital + realized_pnl + unrealized
             equity_values.append(equity)
 
-            # Check stop-loss on open position
+            # 2. Update trailing stop (if position exists and profitable)
+            if position is not None and position.stop_distance > 0:
+                if position.side == "BUY":
+                    trail_stop = row["high"] - position.stop_distance
+                    if trail_stop > position.stop_price:
+                        position.stop_price = trail_stop
+                else:
+                    trail_stop = row["low"] + position.stop_distance
+                    if trail_stop < position.stop_price:
+                        position.stop_price = trail_stop
+
+            # 3. Check stop-loss
             if position is not None:
                 stopped = False
+                exit_price = 0.0
                 if position.side == "BUY" and row["low"] <= position.stop_price:
                     exit_price = position.stop_price * (1 - self.slippage_rate)
                     stopped = True
@@ -88,76 +126,64 @@ class BacktestEngine:
                     stopped = True
 
                 if stopped:
-                    fee = exit_price * position.size * self.fee_rate
-                    if position.side == "BUY":
-                        pnl = (exit_price - position.entry_price) * position.size - fee
-                    else:
-                        pnl = (position.entry_price - exit_price) * position.size - fee
-
-                    trade = Trade(
-                        symbol=symbol,
-                        side=position.side,
-                        entry_price=position.entry_price,
-                        exit_price=exit_price,
-                        entry_time=position.entry_time,
-                        exit_time=row["timestamp"],
-                        size=position.size,
-                        pnl=pnl,
-                        fees=fee + (position.entry_price * position.size * self.fee_rate),
-                    )
+                    trade = self._close_position(position, exit_price, row["timestamp"], symbol)
                     trades.append(trade)
-                    cash += pnl + (position.entry_price * position.size)
-                    if position.side == "BUY":
-                        cash = self.initial_capital + sum(t.pnl for t in trades)
-                    else:
-                        cash = self.initial_capital + sum(t.pnl for t in trades)
+                    realized_pnl += trade.pnl
                     position = None
 
-            # Get strategy signal (only pass data up to current bar — no lookahead)
+            # 4. Get strategy signal (pass position side for exit logic)
             df_slice = df.iloc[: i + 1]
-            signal_result = self.strategy_fn(df_slice)
+            position_side = position.side if position is not None else None
+            signal_result = self.strategy_fn(df_slice, position_side=position_side)
             signal = signal_result.get("signal", "HOLD")
             stop_distance = signal_result.get("stop_distance", 0.0)
 
-            # Close opposing position if signal reverses
-            if position is not None and signal != "HOLD" and signal != position.side:
+            # 5. Handle EXIT signal — close without opening new position
+            if signal == "EXIT" and position is not None:
                 exit_price = current_price * (
                     (1 - self.slippage_rate) if position.side == "BUY" else (1 + self.slippage_rate)
                 )
-                fee = exit_price * position.size * self.fee_rate
-                if position.side == "BUY":
-                    pnl = (exit_price - position.entry_price) * position.size - fee
-                else:
-                    pnl = (position.entry_price - exit_price) * position.size - fee
-
-                trade = Trade(
-                    symbol=symbol,
-                    side=position.side,
-                    entry_price=position.entry_price,
-                    exit_price=exit_price,
-                    entry_time=position.entry_time,
-                    exit_time=row["timestamp"],
-                    size=position.size,
-                    pnl=pnl,
-                    fees=fee + (position.entry_price * position.size * self.fee_rate),
-                )
+                trade = self._close_position(position, exit_price, row["timestamp"], symbol)
                 trades.append(trade)
-                cash = self.initial_capital + sum(t.pnl for t in trades)
+                realized_pnl += trade.pnl
+                position = None
+                signal = "HOLD"  # Don't open a new position
+
+            # 6. Close opposing position if signal reverses
+            if position is not None and signal in ("BUY", "SELL") and signal != position.side:
+                exit_price = current_price * (
+                    (1 - self.slippage_rate) if position.side == "BUY" else (1 + self.slippage_rate)
+                )
+                trade = self._close_position(position, exit_price, row["timestamp"], symbol)
+                trades.append(trade)
+                realized_pnl += trade.pnl
                 position = None
 
-            # Open new position
+            # 7. Open new position
             if position is None and signal in ("BUY", "SELL"):
-                equity_now = self.initial_capital + sum(t.pnl for t in trades)
-                risk_amount = equity_now * self.max_position_pct
+                equity_now = self.initial_capital + realized_pnl
 
-                if stop_distance > 0:
-                    size = risk_amount / stop_distance
-                else:
-                    size = risk_amount / current_price
+                if equity_now <= 0:
+                    continue
+
+                risk_amount = equity_now * self.max_position_pct
 
                 entry_price = current_price * (
                     (1 + self.slippage_rate) if signal == "BUY" else (1 - self.slippage_rate)
                 )
+
+                if stop_distance > 0:
+                    size = risk_amount / stop_distance
+                else:
+                    size = risk_amount / entry_price
+
+                # Cap position so notional doesn't exceed equity
+                max_size = equity_now / entry_price
+                size = min(size, max_size)
+
+                if size <= 0:
+                    continue
+
                 entry_fee = entry_price * size * self.fee_rate
 
                 if signal == "BUY":
@@ -172,6 +198,8 @@ class BacktestEngine:
                     entry_price=entry_price,
                     stop_price=stop_price,
                     entry_time=row["timestamp"],
+                    entry_fee=entry_fee,
+                    stop_distance=stop_distance,
                 )
 
         # Close any remaining position at end
@@ -180,25 +208,11 @@ class BacktestEngine:
             exit_price = final_price * (
                 (1 - self.slippage_rate) if position.side == "BUY" else (1 + self.slippage_rate)
             )
-            fee = exit_price * position.size * self.fee_rate
-            if position.side == "BUY":
-                pnl = (exit_price - position.entry_price) * position.size - fee
-            else:
-                pnl = (position.entry_price - exit_price) * position.size - fee
+            trade = self._close_position(position, exit_price, df.iloc[-1]["timestamp"], symbol)
+            trades.append(trade)
+            realized_pnl += trade.pnl
 
-            trades.append(Trade(
-                symbol=symbol,
-                side=position.side,
-                entry_price=position.entry_price,
-                exit_price=exit_price,
-                entry_time=position.entry_time,
-                exit_time=df.iloc[-1]["timestamp"],
-                size=position.size,
-                pnl=pnl,
-                fees=fee + (position.entry_price * position.size * self.fee_rate),
-            ))
-
-        final_equity = self.initial_capital + sum(t.pnl for t in trades)
+        final_equity = self.initial_capital + realized_pnl
         equity_series = pd.Series(equity_values, index=df.index)
 
         return BacktestResult(

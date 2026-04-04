@@ -19,8 +19,8 @@ class MomentumStrategy:
         self.volume_sma_period = mom_cfg["volume_sma_period"]
         self.volume_multiplier = mom_cfg["volume_multiplier"]
 
-    def signal(self, df: pd.DataFrame) -> str:
-        """Return BUY, SELL, or HOLD for the latest bar."""
+    def signal(self, df: pd.DataFrame, current_position_side: str | None = None) -> str:
+        """Return BUY, SELL, EXIT, or HOLD for the latest bar."""
         if len(df) < self.ema_slow_period + 2:
             return "HOLD"
 
@@ -47,5 +47,12 @@ class MomentumStrategy:
         # Bearish crossover: fast crosses below slow
         if prev_fast >= prev_slow and curr_fast < curr_slow and volume_confirmed:
             return "SELL"
+
+        # Exit signals: opposing EMA crossover (no volume filter for exits)
+        if current_position_side == "BUY" and prev_fast >= prev_slow and curr_fast < curr_slow:
+            return "EXIT"
+
+        if current_position_side == "SELL" and prev_fast <= prev_slow and curr_fast > curr_slow:
+            return "EXIT"
 
         return "HOLD"

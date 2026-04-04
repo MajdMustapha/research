@@ -20,8 +20,8 @@ class MeanReversionStrategy:
         self.bb_period = mr_cfg["bb_period"]
         self.bb_std = mr_cfg["bb_std"]
 
-    def signal(self, df: pd.DataFrame) -> str:
-        """Return BUY, SELL, or HOLD for the latest bar."""
+    def signal(self, df: pd.DataFrame, current_position_side: str | None = None) -> str:
+        """Return BUY, SELL, EXIT, or HOLD for the latest bar."""
         if len(df) < max(self.rsi_period, self.bb_period) + 2:
             return "HOLD"
 
@@ -31,6 +31,7 @@ class MeanReversionStrategy:
         curr_rsi = rsi_values.iloc[-1]
         curr_close = df["close"].iloc[-1]
         curr_upper = upper.iloc[-1]
+        curr_middle = middle.iloc[-1]
         curr_lower = lower.iloc[-1]
 
         if pd.isna(curr_rsi) or pd.isna(curr_upper) or pd.isna(curr_lower):
@@ -43,5 +44,12 @@ class MeanReversionStrategy:
         # Overbought + at upper band → SELL
         if curr_rsi > self.rsi_overbought and curr_close >= curr_upper:
             return "SELL"
+
+        # Exit signals: RSI crosses back through 50 or price reaches middle BB
+        if current_position_side == "BUY" and (curr_rsi > 50 or curr_close >= curr_middle):
+            return "EXIT"
+
+        if current_position_side == "SELL" and (curr_rsi < 50 or curr_close <= curr_middle):
+            return "EXIT"
 
         return "HOLD"
