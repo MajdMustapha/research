@@ -3,14 +3,61 @@
   "author": "User-defined",
   "type": "Trend Continuation / Bounce",
   "timeframe": "D",
-  "market": "Equities + Crypto",
+  "market": "Equities",
   "difficulty": "Intermediate",
   "watchlist": [
-    "BTCUSD",
-    "ETHUSD",
-    "SOLUSD",
-    "XRPUSD",
-    "LINKUSD"
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "NVDA",
+    "META",
+    "TSLA",
+    "AMD",
+    "JPM",
+    "V",
+    "MA",
+    "UNH",
+    "JNJ",
+    "HD",
+    "WMT",
+    "PG",
+    "XOM",
+    "CAT",
+    "BA",
+    "DIS",
+    "NFLX",
+    "SPY",
+    "QQQ",
+    "CRM",
+    "ORCL",
+    "ADBE",
+    "PYPL",
+    "INTC",
+    "AVGO",
+    "QCOM",
+    "MU",
+    "BAC",
+    "GS",
+    "MS",
+    "BRK.B",
+    "PFE",
+    "ABBV",
+    "MRK",
+    "LLY",
+    "COST",
+    "KO",
+    "PEP",
+    "MCD",
+    "CVX",
+    "COP",
+    "GE",
+    "UPS",
+    "HON",
+    "CMCSA",
+    "IWM",
+    "DIA",
+    "NOW"
   ],
   "concept": "3 mandatory confluences must ALL be present: oversold stochastics + candlestick reversal pattern (with next-day confirmation) + strong support. Plus factors improve conviction but are not required.",
   "mandatory": {
@@ -22,14 +69,14 @@
     "pin_bar": "Long lower wick >= 2x body, small upper wick. Confirmation: next day closes above high",
     "engulfing": "Prior bearish candle fully engulfed by bullish candle. Confirmation: next day closes above high",
     "harami": "Small bullish body inside prior large bearish body. Confirmation: next day closes above high",
-    "morning_star": "Large bearish → small star → large bullish closing above midpoint. Confirmation: next day continues",
+    "morning_star": "Large bearish \u2192 small star \u2192 large bullish closing above midpoint. Confirmation: next day continues",
     "white_soldier": "Large bullish candle (body > 60% of range) after a bearish candle. Confirmation: next day closes above high"
   },
   "plus_factors": {
     "macd": "MACD (50,100,9) bullish or no bearish cross within 5 bars",
     "wave_pattern": "EMA 50 > 200 with higher lows",
     "smooth_retracement": "3+ lower closes before reversal (orderly pullback)",
-    "spy_trend": "SPY above 50 EMA (bullish regime) — equities only",
+    "spy_trend": "SPY above 50 EMA (bullish regime) \u2014 equities only",
     "trendline_support": "Price at rising trendline from prior pivot lows",
     "horizontal_support": "Price level tested 2+ times historically"
   },
@@ -53,14 +100,14 @@
   },
   "exit_rules": {
     "stop_loss": "1.5x ATR below entry (1R)",
-    "take_profit": "3R — risk $1 to make $3",
+    "take_profit": "3R \u2014 risk $1 to make $3",
     "r_r": "1:3"
   },
   "scoring": {
     "mandatory_3": "Must have ALL 3 to enter",
     "plus_0": "Valid but minimum conviction",
     "plus_2": "Good setup",
-    "plus_4": "High conviction — consider larger size",
+    "plus_4": "High conviction \u2014 consider larger size",
     "plus_6": "Rare, highest conviction"
   },
   "todo": [
@@ -68,55 +115,59 @@
     "Test on weekly for longer-term confirmation",
     "Add equities watchlist (SPY, QQQ, AAPL, MSFT)"
   ],
-  "tv_strategy_tester": {
-    "BTC Daily": {
-      "tested_on": "2026-04-05",
-      "metrics": {
-        "Gross Profit": "0",
-        "Gross Loss": "0",
-        "Total Trades": "0"
-      },
-      "win_rate": 0,
-      "profit_factor": 0,
-      "total_trades": 0,
-      "net_profit": "unknown"
+  "backtest_results": {
+    "DIA 4H": {
+      "pf": 4.913,
+      "wr": "50%",
+      "trades": 4
     },
-    "ETH Daily": {
-      "tested_on": "2026-04-05",
-      "metrics": {
-        "Gross Profit": "89.71",
-        "Gross Loss": "37.68",
-        "Total Trades": "3",
-        "Win Rate": "33.33%",
-        "Profit Factor": "2.381"
-      },
-      "win_rate": 33.33,
-      "profit_factor": 2.381,
-      "total_trades": 3,
-      "net_profit": "unknown"
+    "CRM 4H": {
+      "pf": 2.494,
+      "wr": "37.5%",
+      "trades": 8
     },
-    "SOL Daily": {
-      "tested_on": "2026-04-05",
-      "metrics": {
-        "Gross Profit": "233.88",
-        "Gross Loss": "178.17",
-        "Total Trades": "11",
-        "Win Rate": "27.27%",
-        "Profit Factor": "1.313"
-      },
-      "win_rate": 27.27,
-      "profit_factor": 1.313,
-      "total_trades": 11,
-      "net_profit": "unknown"
+    "TSLA 4H": {
+      "pf": 2.152,
+      "wr": "50%",
+      "trades": 34
+    },
+    "PYPL 4H": {
+      "pf": 2.076,
+      "wr": "37.25%",
+      "trades": 51
+    },
+    "MA Daily": {
+      "pf": 1.958,
+      "wr": "39.53%",
+      "trades": 43
+    },
+    "DIS 4H": {
+      "pf": 1.948,
+      "wr": "33.33%",
+      "trades": 63
+    },
+    "META 4H": {
+      "pf": 1.646,
+      "wr": "34.78%",
+      "trades": 46
+    },
+    "NVDA 4H": {
+      "pf": 1.606,
+      "wr": "35.14%",
+      "trades": 74
+    },
+    "_summary": {
+      "tested_on": "2026-04-05T17:06:23.957Z",
+      "stocks_tested": 51,
+      "total_tests": 102,
+      "with_trades": 94,
+      "profitable": 40,
+      "strong": 8
     },
     "_recommendations": [
-      "BTC Daily: Very few trades — try longer timeframe or wider date range for more data",
-      "BTC Daily: NO TRADES generated — strategy conditions too strict or no data for this TF",
-      "ETH Daily: Very few trades — try longer timeframe or wider date range for more data",
-      "ETH Daily: Win rate below 40% — consider tightening entries or widening TP",
-      "ETH Daily: Profit factor above 1.5 — strategy has edge",
-      "ETH Daily: Profit factor above 2 — strong strategy",
-      "SOL Daily: Win rate below 40% — consider tightening entries or widening TP"
+      "4H outperforms Daily \u2014 6 of 8 top performers on 4H",
+      "Best sectors: Tech (NVDA, META, TSLA, CRM, PYPL) and Consumer (DIS, MA)",
+      "Strategy works selectively \u2014 8 strong out of 50 stocks"
     ]
   }
 }

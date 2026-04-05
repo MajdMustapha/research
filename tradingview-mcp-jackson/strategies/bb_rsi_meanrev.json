@@ -1,7 +1,7 @@
 {
   "name": "BB + RSI Mean Reversion",
   "author": "@DaviddDotTech",
-  "source": "X post, Apr 2023 — backtested on TradingView",
+  "source": "X post, Apr 2023 \u2014 backtested on TradingView",
   "type": "Mean Reversion / Oscillator Combo",
   "timeframe": "60",
   "alt_timeframes": [
@@ -40,14 +40,14 @@
     "long": [
       "Price touches or closes below lower Bollinger Band",
       "RSI is below 30 (oversold)",
-      "ADX is below 20 (ranging market — regime filter)",
+      "ADX is below 20 (ranging market \u2014 regime filter)",
       "Both conditions on same candle",
       "Enter at open of next candle"
     ],
     "short": [
       "Price touches or closes above upper Bollinger Band",
       "RSI is above 70 (overbought)",
-      "ADX is below 20 (ranging market — regime filter)",
+      "ADX is below 20 (ranging market \u2014 regime filter)",
       "Both conditions on same candle",
       "Enter at open of next candle"
     ]
@@ -61,9 +61,9 @@
   "risk_rules": [
     "Risk 1-2% of account per trade",
     "Minimum R:R 1.5:1 before entering",
-    "Mean reversion strategy — do NOT use in trending markets",
+    "Mean reversion strategy \u2014 do NOT use in trending markets",
     "Best on: SPY, QQQ, major Forex, BTC/ETH in ranges",
-    "Worst: strong directional trends — price walks the band"
+    "Worst: strong directional trends \u2014 price walks the band"
   ],
   "regime_check": {
     "ranging_use_strategy": [
@@ -91,13 +91,48 @@
     "min_trades": "> 50"
   },
   "backtest_results": {
-    "BB+RSI Range Q2-24": {
-      "error": "Replay start failed: Replay failed to start. The selected date may not have data for this timeframe. Try a more recent date or a higher timeframe (e.g., Daily)."
+    "BTC 1H": {
+      "trades": 51,
+      "win_rate": "62.75%",
+      "profit_factor": "2.157",
+      "tested_on": "2026-04-05"
     },
-    "BB+RSI Bear Q1-25": {
-      "error": "Replay start failed: Replay failed to start. The selected date may not have data for this timeframe. Try a more recent date or a higher timeframe (e.g., Daily)."
+    "ETH 1H": {
+      "trades": 56,
+      "win_rate": "46.43%",
+      "profit_factor": "0.893",
+      "tested_on": "2026-04-05"
     },
-    "_observations": []
+    "SOL 1H": {
+      "trades": 40,
+      "win_rate": "55%",
+      "profit_factor": "1.051",
+      "tested_on": "2026-04-05"
+    },
+    "XRP 1H": {
+      "trades": 47,
+      "win_rate": "46.81%",
+      "profit_factor": "1.146",
+      "tested_on": "2026-04-05"
+    },
+    "EUR/USD 1H": {
+      "trades": 41,
+      "win_rate": "34.15%",
+      "profit_factor": "0.45",
+      "tested_on": "2026-04-05"
+    },
+    "BTC 4H": {
+      "trades": 39,
+      "win_rate": "56.41%",
+      "profit_factor": "1.046",
+      "tested_on": "2026-04-05"
+    },
+    "_recommendations": [
+      "BTC 1H is the strongest \u2014 PF 2.16, WR 63%, 51 trades",
+      "XRP 1H decent (PF 1.15). SOL breakeven (PF 1.05).",
+      "EUR/USD fails (PF 0.45) \u2014 removed from scanner",
+      "Works in ranging markets. ADX filter prevents trend losses."
+    ]
   },
   "tv_strategy_tester": {
     "BTC 1H": {
@@ -185,12 +220,12 @@
       "net_profit": "unknown"
     },
     "_recommendations": [
-      "BTC 1H: Win rate above 60% — solid foundation",
-      "BTC 1H: Profit factor above 1.5 — strategy has edge",
-      "BTC 1H: Profit factor above 2 — strong strategy",
-      "ETH 1H: Profit factor below 1 — strategy loses money. Review exit logic",
-      "EUR/USD 1H: Win rate below 40% — consider tightening entries or widening TP",
-      "EUR/USD 1H: Profit factor below 1 — strategy loses money. Review exit logic"
+      "BTC 1H: Win rate above 60% \u2014 solid foundation",
+      "BTC 1H: Profit factor above 1.5 \u2014 strategy has edge",
+      "BTC 1H: Profit factor above 2 \u2014 strong strategy",
+      "ETH 1H: Profit factor below 1 \u2014 strategy loses money. Review exit logic",
+      "EUR/USD 1H: Win rate below 40% \u2014 consider tightening entries or widening TP",
+      "EUR/USD 1H: Profit factor below 1 \u2014 strategy loses money. Review exit logic"
     ]
   }
 }

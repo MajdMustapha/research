@@ -22,7 +22,7 @@ function getData() {
   const rules = rj(`${P}/rules.json`);
   const strats = [];
   try {
-    for (const f of fs.readdirSync(`${P}/strategies`).filter(f => f.endsWith('.json'))) {
+    for (const f of fs.readdirSync(`${P}/strategies`).filter(f => f.endsWith('.json') && !f.includes('backtest_results'))) {
       strats.push(rj(`${P}/strategies/${f}`));
     }
   } catch {}
@@ -84,8 +84,8 @@ function html(d) {
     ...d.strats.map(s => ({
       name: s.name, author: s.author, tf: s.timeframe === '60' ? '1H' : s.timeframe === '240' ? '4H' : s.timeframe === '15' ? '15M' : s.timeframe,
       type: s.type?.split('/')[0]?.trim() || '', watchlist: s.watchlist || [],
-      tests: Object.entries(s.backtest_results || {}).filter(([k]) => !k.startsWith('_')),
-      aggregate: s.backtest_results?._aggregate, recs: s.backtest_results?._recommendations,
+      tests: Object.entries(s.backtest_results || s.tv_strategy_tester || {}).filter(([k]) => !k.startsWith('_')),
+      aggregate: (s.backtest_results || s.tv_strategy_tester)?._aggregate, recs: (s.backtest_results || s.tv_strategy_tester)?._recommendations,
       stats: s.reported_stats,
     })),
   ];
@@ -216,8 +216,11 @@ ${Object.entries(d.multiState).map(([key, val]) => {
     ${s.aggregate ? `<div style="font-size:10px;color:var(--text)">Agg: WR ${e(s.aggregate.overall_win_rate)} · ${e(s.aggregate.total_trades)} trades · Avg Ret ${e(s.aggregate.avg_return_per_period)}</div>` : ''}
     ${s.tests?.length > 0 ? `<div class="bt-row">${s.tests.map(([name, r]) => {
       if (r.error) return `<span class="bt-tag bt-na">${e(name.substring(0,20))}: ERR</span>`;
-      const ret = parseFloat(r.total_return);
-      return `<span class="bt-tag ${ret > 0 ? 'bt-win' : 'bt-loss'}">${e(name.substring(0,20))}: WR ${e(r.win_rate)} · ${e(r.total_return)}</span>`;
+      const wr = r.win_rate || r.wr || '';
+      const pf = r.profit_factor || r.pf || '';
+      const tr = r.trades || r.total_trades || '';
+      const pfNum = parseFloat(pf);
+      return `<span class="bt-tag ${pfNum >= 1.5 ? 'bt-win' : pfNum >= 1.0 ? 'bt-win' : pfNum > 0 ? 'bt-loss' : 'bt-na'}">${e(name.substring(0,20))}: WR ${e(wr)} · PF ${e(pf)}${tr ? ' · ' + tr + 't' : ''}</span>`;
     }).join('')}</div>` : '<div style="font-size:10px;color:var(--muted)">No backtest data yet</div>'}
     ${s.recs?.length > 0 ? `<div style="font-size:10px;color:var(--amber);margin-top:4px">${s.recs.map(r => '→ ' + e(r)).join('<br>')}</div>` : ''}
   </div>`).join('')}
