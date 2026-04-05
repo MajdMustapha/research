@@ -1,0 +1,455 @@
+//@version=5
+strategy("Ramzi FVG Scalper v2", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.05, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+
+// --- Multi-Timeframe ---
+htfTF           = input.timeframe("D",  "HTF Bias Timeframe",       group="Multi-TF")
+mtfTF           = input.timeframe("60", "MTF FVG Timeframe (1H)",   group="Multi-TF")
+
+// --- FVG Detection ---
+fvgMinSize      = input.float(0.05,  "Min FVG Size (% of price)",   group="FVG", minval=0.01, step=0.01) / 100
+fvgMaxAge       = input.int(30,      "Max FVG Age (bars)",          group="FVG", minval=5,    maxval=100)
+minBodyRatio    = input.float(0.70,  "Min Displacement Body Ratio", group="FVG", minval=0.5,  maxval=0.95, step=0.05)
+minVolMult      = input.float(1.0,   "Min Volume Multiple (vs SMA)", group="FVG", minval=0.5, maxval=3.0, step=0.1)
+
+// --- FVG Quality Scoring ---
+qScoreThresh    = input.float(2.5,   "Min Quality Score for Entry", group="Quality", minval=1.0, maxval=10.0, step=0.5)
+
+// --- Session Filter ---
+useSessions     = input.bool(true,   "Filter by Session",           group="Session")
+londonStart     = input.int(7,       "London Start (UTC hour)",     group="Session", minval=0, maxval=23)
+londonEnd       = input.int(16,      "London End (UTC hour)",       group="Session", minval=0, maxval=23)
+nyStart         = input.int(13,      "NY Start (UTC hour)",         group="Session", minval=0, maxval=23)
+nyEnd           = input.int(21,      "NY End (UTC hour)",           group="Session", minval=0, maxval=23)
+sessionBuffer   = input.int(1,       "Session Open Buffer (bars)",  group="Session", minval=0, maxval=4, tooltip="Skip first N bars of session to avoid open volatility")
+
+// --- Entry ---
+reqLiqSweep     = input.bool(true,   "Require Liquidity Sweep",    group="Entry")
+mssLookback     = input.int(10,      "MSS Lookback Bars",          group="Entry", minval=3, maxval=30)
+
+// --- Risk / Exits ---
+atrLen          = input.int(14,      "ATR Length",                  group="Risk")
+slAtrMult       = input.float(1.0,   "SL = FVG Edge + N x ATR",    group="Risk", minval=0.5, maxval=3.0, step=0.25)
+tp1RR           = input.float(2.0,   "TP1 R:R (50% exit)",         group="Risk", minval=1.0, maxval=5.0, step=0.25)
+useTrail        = input.bool(true,   "Trail Runner via Swing",     group="Risk")
+trailSwingLen   = input.int(5,       "Trail Swing Lookback",       group="Risk", minval=3, maxval=20)
+
+// ============================================================================
+// CORE CALCULATIONS
+// ============================================================================
+
+atr             = ta.atr(atrLen)
+volSma          = ta.sma(volume, 20)
+
+// ============================================================================
+// SESSION FILTER
+// ============================================================================
+
+utcHour         = hour(time, "UTC")
+inLondon        = utcHour >= londonStart and utcHour < londonEnd
+inNY            = utcHour >= nyStart     and utcHour < nyEnd
+inSession       = not useSessions or inLondon or inNY
+
+// Detect session opens for buffer logic
+var int barsIntoSession = 0
+londonJustOpened = utcHour == londonStart and utcHour[1] != londonStart
+nyJustOpened     = utcHour == nyStart     and utcHour[1] != nyStart
+sessionJustOpened = londonJustOpened or nyJustOpened
+
+if sessionJustOpened
+    barsIntoSession := 0
+else
+    barsIntoSession += 1
+
+pastSessionBuffer = barsIntoSession >= sessionBuffer
+sessionOk         = inSession and pastSessionBuffer
+
+// Session background highlighting
+londonBG = inLondon ? color.new(#2962FF, 95) : na
+nyBG     = inNY     ? color.new(#FF6D00, 96) : na
+bgcolor(useSessions ? londonBG : na, title="London Session")
+bgcolor(useSessions ? nyBG     : na, title="NY Session")
+
+// ============================================================================
+// HTF BIAS (Daily)
+// ============================================================================
+
+htfClose    = request.security(syminfo.tickerid, htfTF, close)
+htfOpen     = request.security(syminfo.tickerid, htfTF, open)
+htfEma20    = request.security(syminfo.tickerid, htfTF, ta.ema(close, 20))
+htfEma50    = request.security(syminfo.tickerid, htfTF, ta.ema(close, 50))
+htfBullish  = htfClose > htfEma20 and htfEma20 > htfEma50
+htfBearish  = htfClose < htfEma20 and htfEma20 < htfEma50
+
+// ============================================================================
+// MTF (1H) FVG — for nested FVG confluence
+// ============================================================================
+
+// Detect 1H bullish/bearish FVG zones
+mtfHigh0    = request.security(syminfo.tickerid, mtfTF, high)
+mtfLow0     = request.security(syminfo.tickerid, mtfTF, low)
+mtfHigh2    = request.security(syminfo.tickerid, mtfTF, high[2])
+mtfLow2     = request.security(syminfo.tickerid, mtfTF, low[2])
+
+mtfBullFVG_top = request.security(syminfo.tickerid, mtfTF, low)
+mtfBullFVG_bot = request.security(syminfo.tickerid, mtfTF, high[2])
+mtfBullFVG     = mtfLow0 > mtfHigh2
+
+mtfBearFVG_top = request.security(syminfo.tickerid, mtfTF, low[2])
+mtfBearFVG_bot = request.security(syminfo.tickerid, mtfTF, high)
+mtfBearFVG     = mtfLow2 > mtfHigh0
+
+// Track most recent 1H FVG zones for nesting check
+var float mtf_bull_top = na
+var float mtf_bull_bot = na
+var float mtf_bear_top = na
+var float mtf_bear_bot = na
+
+if mtfBullFVG
+    mtf_bull_top := mtfBullFVG_top
+    mtf_bull_bot := mtfBullFVG_bot
+
+if mtfBearFVG
+    mtf_bear_top := mtfBearFVG_top
+    mtf_bear_bot := mtfBearFVG_bot
+
+// Check if current price is inside a 1H FVG zone (nested confluence)
+bullNestedFVG = not na(mtf_bull_top) and not na(mtf_bull_bot) and close >= mtf_bull_bot and close <= mtf_bull_top
+bearNestedFVG = not na(mtf_bear_top) and not na(mtf_bear_bot) and close >= mtf_bear_bot and close <= mtf_bear_top
+
+// ============================================================================
+// FVG DETECTION + QUALITY SCORING (15M)
+// ============================================================================
+
+// Raw FVG detection
+rawBullFVG = low > high[2] and (low - high[2]) / close > fvgMinSize
+rawBearFVG = low[2] > high and (low[2] - high) / close > fvgMinSize
+
+// --- Quality metrics for displacement candle (candle[1] = the middle candle) ---
+
+// 1. Body ratio of displacement candle
+body1       = math.abs(close[1] - open[1])
+range1      = high[1] - low[1]
+bodyRatio1  = range1 > 0 ? body1 / range1 : 0.0
+bodyOk      = bodyRatio1 >= minBodyRatio
+
+// 2. Volume on displacement candle
+volOk       = volume[1] > volSma[1] * minVolMult
+
+// 3. FVG size relative to ATR
+bullFvgSize = rawBullFVG ? (low - high[2])  : 0.0
+bearFvgSize = rawBearFVG ? (low[2] - high)  : 0.0
+fvgSizeATR  = atr > 0 ? math.max(bullFvgSize, bearFvgSize) / atr : 0.0
+
+// --- Quality Score (0-10 scale) ---
+// Components:
+//   Size vs ATR:       0-3 pts (capped at 3 when gap >= 0.75 ATR)
+//   Body ratio:        0-3 pts (linear from minBodyRatio to 1.0)
+//   Volume multiple:   0-2 pts (capped at 2 when vol >= 2x SMA)
+//   Nested 1H FVG:     0-2 pts (bonus for HTF confluence)
+
+sizeScore   = math.min(fvgSizeATR / 0.75 * 3.0, 3.0)
+bodyScore   = bodyRatio1 >= minBodyRatio ? math.min((bodyRatio1 - minBodyRatio) / (1.0 - minBodyRatio) * 3.0 + 1.5, 3.0) : 0.0
+volRatio    = volSma[1] > 0 ? volume[1] / volSma[1] : 0.0
+volScore    = math.min(volRatio / 2.0 * 2.0, 2.0)
+nestedScore = (rawBullFVG and bullNestedFVG) or (rawBearFVG and bearNestedFVG) ? 2.0 : 0.0
+
+qualityScore = sizeScore + bodyScore + volScore + nestedScore
+
+// Final FVG signals: must pass body + volume filters
+bullFVG = rawBullFVG and bodyOk and volOk
+bearFVG = rawBearFVG and bodyOk and volOk
+
+// ============================================================================
+// FVG TRACKING ARRAYS
+// ============================================================================
+
+var float[] bullFvgTop   = array.new_float(0)
+var float[] bullFvgBot   = array.new_float(0)
+var int[]   bullFvgBar   = array.new_int(0)
+var float[] bullFvgScore = array.new_float(0)
+var box[]   bullFvgBox   = array.new_box(0)
+
+var float[] bearFvgTop   = array.new_float(0)
+var float[] bearFvgBot   = array.new_float(0)
+var int[]   bearFvgBar   = array.new_int(0)
+var float[] bearFvgScore = array.new_float(0)
+var box[]   bearFvgBox   = array.new_box(0)
+
+// Store quality score for the current bar's FVG
+var float lastBullQuality = 0.0
+var float lastBearQuality = 0.0
+
+// Add new bullish FVGs
+if bullFVG
+    array.push(bullFvgTop,   low)
+    array.push(bullFvgBot,   high[2])
+    array.push(bullFvgBar,   bar_index)
+    array.push(bullFvgScore, qualityScore)
+    _alpha = qualityScore >= qScoreThresh ? 80 : 90
+    array.push(bullFvgBox, box.new(bar_index - 2, low, bar_index + 20, high[2], border_color=color.new(#00FFFF, 20), bgcolor=color.new(#00FFFF, _alpha), border_width=1))
+    lastBullQuality := qualityScore
+
+// Add new bearish FVGs
+if bearFVG
+    array.push(bearFvgTop,   low[2])
+    array.push(bearFvgBot,   high)
+    array.push(bearFvgBar,   bar_index)
+    array.push(bearFvgScore, qualityScore)
+    _alpha = qualityScore >= qScoreThresh ? 80 : 90
+    array.push(bearFvgBox, box.new(bar_index - 2, low[2], bar_index + 20, high, border_color=color.new(#FF6B6B, 20), bgcolor=color.new(#FF6B6B, _alpha), border_width=1))
+    lastBearQuality := qualityScore
+
+// ============================================================================
+// LIQUIDITY SWEEP DETECTION (improved — multi-touch swing levels)
+// ============================================================================
+
+swingHigh = ta.pivothigh(high, 5, 2)
+swingLow  = ta.pivotlow(low, 5, 2)
+
+var float lastSwingHigh  = na
+var float lastSwingLow   = na
+var int   swHighBar      = na
+var int   swLowBar       = na
+
+if not na(swingHigh)
+    lastSwingHigh := swingHigh
+    swHighBar     := bar_index - 2
+if not na(swingLow)
+    lastSwingLow  := swingLow
+    swLowBar      := bar_index - 2
+
+// Sweep = wick beyond level, body closes back inside
+// Require the swing to be at least 3 bars old (not a fresh pivot)
+swHighAge       = not na(swHighBar) ? bar_index - swHighBar : 999
+swLowAge        = not na(swLowBar)  ? bar_index - swLowBar  : 999
+liqSweepHigh    = not na(lastSwingHigh) and swHighAge >= 3 and high > lastSwingHigh and close < lastSwingHigh
+liqSweepLow     = not na(lastSwingLow)  and swLowAge  >= 3 and low  < lastSwingLow  and close > lastSwingLow
+
+// Track recent sweeps (lookback window)
+recentSweepLow  = liqSweepLow  or liqSweepLow[1]  or liqSweepLow[2]  or liqSweepLow[3]
+recentSweepHigh = liqSweepHigh or liqSweepHigh[1] or liqSweepHigh[2] or liqSweepHigh[3]
+
+// ============================================================================
+// MARKET STRUCTURE SHIFT (MSS)
+// ============================================================================
+
+recentHigh = ta.highest(high, mssLookback)
+recentLow  = ta.lowest(low, mssLookback)
+bullMSS    = close > recentHigh[1] and close[1] <= recentHigh[2]
+bearMSS    = close < recentLow[1]  and close[1] >= recentLow[2]
+
+// ============================================================================
+// MITIGATION CHECK — price entering an active FVG
+// ============================================================================
+
+var bool  bullMitigation  = false
+var bool  bearMitigation  = false
+var float bullEntryLevel  = na
+var float bearEntryLevel  = na
+var float bullSLraw       = na
+var float bearSLraw       = na
+var float entryQuality    = 0.0
+
+bullMitigation := false
+bearMitigation := false
+
+// Check bullish FVGs for mitigation (price dips into gap and holds)
+if array.size(bullFvgTop) > 0
+    for i = array.size(bullFvgTop) - 1 to 0
+        if bar_index - array.get(bullFvgBar, i) > fvgMaxAge
+            if i < array.size(bullFvgTop)
+                box.delete(array.get(bullFvgBox, i))
+                array.remove(bullFvgTop, i)
+                array.remove(bullFvgBot, i)
+                array.remove(bullFvgBar, i)
+                array.remove(bullFvgScore, i)
+                array.remove(bullFvgBox, i)
+        else if low <= array.get(bullFvgTop, i) and close > array.get(bullFvgBot, i)
+            _score = array.get(bullFvgScore, i)
+            if _score >= qScoreThresh
+                bullMitigation := true
+                bullEntryLevel := array.get(bullFvgBot, i)
+                bullSLraw      := array.get(bullFvgBot, i)
+                entryQuality   := _score
+                box.set_right(array.get(bullFvgBox, i), bar_index)
+                box.set_bgcolor(array.get(bullFvgBox, i), color.new(#00FFFF, 70))
+                break
+
+// Check bearish FVGs for mitigation
+if array.size(bearFvgTop) > 0
+    for i = array.size(bearFvgTop) - 1 to 0
+        if bar_index - array.get(bearFvgBar, i) > fvgMaxAge
+            if i < array.size(bearFvgTop)
+                box.delete(array.get(bearFvgBox, i))
+                array.remove(bearFvgTop, i)
+                array.remove(bearFvgBot, i)
+                array.remove(bearFvgBar, i)
+                array.remove(bearFvgScore, i)
+                array.remove(bearFvgBox, i)
+        else if high >= array.get(bearFvgBot, i) and close < array.get(bearFvgTop, i)
+            _score = array.get(bearFvgScore, i)
+            if _score >= qScoreThresh
+                bearMitigation := true
+                bearEntryLevel := array.get(bearFvgTop, i)
+                bearSLraw      := array.get(bearFvgTop, i)
+                entryQuality   := _score
+                box.set_right(array.get(bearFvgBox, i), bar_index)
+                box.set_bgcolor(array.get(bearFvgBox, i), color.new(#FF6B6B, 70))
+                break
+
+// ============================================================================
+// STOP LOSS — FVG edge + ATR buffer (prevents stop hunts)
+// ============================================================================
+
+bullSL = not na(bullSLraw) ? bullSLraw - atr * slAtrMult : na
+bearSL = not na(bearSLraw) ? bearSLraw + atr * slAtrMult : na
+
+// ============================================================================
+// ENTRY CONDITIONS
+// ============================================================================
+
+liqConfirmLong  = not reqLiqSweep or recentSweepLow  or bullMSS
+liqConfirmShort = not reqLiqSweep or recentSweepHigh or bearMSS
+
+longCondition  = bullMitigation and htfBullish and liqConfirmLong  and sessionOk and strategy.position_size == 0
+shortCondition = bearMitigation and htfBearish and liqConfirmShort and sessionOk and strategy.position_size == 0
+
+// ============================================================================
+// TRAILING STOP via SWING STRUCTURE
+// ============================================================================
+
+trailSwingLow  = ta.lowest(low,  trailSwingLen)
+trailSwingHigh = ta.highest(high, trailSwingLen)
+
+// Track trailing stop for the runner position
+var float trailStopLong  = na
+var float trailStopShort = na
+
+if strategy.position_size > 0 and useTrail
+    newTrail = trailSwingLow - atr * 0.25
+    if na(trailStopLong) or newTrail > trailStopLong
+        trailStopLong := newTrail
+else
+    trailStopLong := na
+
+if strategy.position_size < 0 and useTrail
+    newTrail = trailSwingHigh + atr * 0.25
+    if na(trailStopShort) or newTrail < trailStopShort
+        trailStopShort := newTrail
+else
+    trailStopShort := na
+
+// ============================================================================
+// FVG-FILLED EXIT — if price fully fills the gap against us, thesis is dead
+// ============================================================================
+
+var float activeBullFvgBot = na
+var float activeBearFvgTop = na
+
+// ============================================================================
+// ENTRIES + EXITS
+// ============================================================================
+
+if longCondition
+    risk = close - bullSL
+    if risk > 0
+        tp1Price = close + risk * tp1RR
+        strategy.entry("Long", strategy.long)
+        strategy.exit("TP1 Long", "Long", qty_percent=50, limit=tp1Price, stop=bullSL)
+        // Runner: wider SL (will be managed by trail)
+        strategy.exit("SL Long Runner", "Long", stop=bullSL)
+        activeBullFvgBot := bullEntryLevel
+        trailStopLong    := na
+        label.new(bar_index, low, "✔", style=label.style_label_up, color=color.new(#2196F3, 0), textcolor=color.white, size=size.small)
+
+if shortCondition
+    risk = bearSL - close
+    if risk > 0
+        tp1Price = close - risk * tp1RR
+        strategy.entry("Short", strategy.short)
+        strategy.exit("TP1 Short", "Short", qty_percent=50, limit=tp1Price, stop=bearSL)
+        strategy.exit("SL Short Runner", "Short", stop=bearSL)
+        activeBearFvgTop := bearEntryLevel
+        trailStopShort   := na
+        label.new(bar_index, high, "✔", style=label.style_label_down, color=color.new(#2196F3, 0), textcolor=color.white, size=size.small)
+
+// --- Trailing exit for runner ---
+if strategy.position_size > 0 and useTrail and not na(trailStopLong)
+    strategy.exit("Trail Long", "Long", stop=trailStopLong)
+
+if strategy.position_size < 0 and useTrail and not na(trailStopShort)
+    strategy.exit("Trail Short", "Short", stop=trailStopShort)
+
+// --- FVG-filled invalidation exit ---
+if strategy.position_size > 0 and not na(activeBullFvgBot) and close < activeBullFvgBot
+    strategy.close("Long", comment="FVG Filled")
+    activeBullFvgBot := na
+
+if strategy.position_size < 0 and not na(activeBearFvgTop) and close > activeBearFvgTop
+    strategy.close("Short", comment="FVG Filled")
+    activeBearFvgTop := na
+
+// Reset active FVG tracking when flat
+if strategy.position_size == 0
+    activeBullFvgBot := na
+    activeBearFvgTop := na
+
+// ============================================================================
+// HIDDEN PLOTS FOR MCP
+// ============================================================================
+
+plot(bullMitigation ? 1 : bearMitigation ? -1 : 0, "FVG Signal",       display=display.status_line, color=color.new(color.purple, 100))
+plot(htfBullish ? 1 : htfBearish ? -1 : 0,         "HTF Bias",         display=display.status_line, color=color.new(color.purple, 100))
+plot(array.size(bullFvgTop) + array.size(bearFvgTop), "Active FVGs",    display=display.status_line, color=color.new(color.purple, 100))
+plot(entryQuality,                                   "FVG Quality Score", display=display.status_line, color=color.new(color.purple, 100))
+
+// ============================================================================
+// TRAILING STOP VISUALIZATION
+// ============================================================================
+
+plot(strategy.position_size > 0 and useTrail ? trailStopLong  : na, "Trail Long",  color=color.new(#00FFFF, 40), style=plot.style_stepline, linewidth=1)
+plot(strategy.position_size < 0 and useTrail ? trailStopShort : na, "Trail Short", color=color.new(#FF6B6B, 40), style=plot.style_stepline, linewidth=1)
+
+// ============================================================================
+// INFO TABLE
+// ============================================================================
+
+var table tbl = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, 20), border_width=1)
+
+if barstate.islast
+    htfBias  = htfBullish ? "BULLISH" : htfBearish ? "BEARISH" : "NEUTRAL"
+    htfClr   = htfBullish ? color.green : htfBearish ? color.red : color.gray
+    sessText = inLondon and inNY ? "LDN+NY" : inLondon ? "LONDON" : inNY ? "NEW YORK" : "CLOSED"
+    sessClr  = inSession ? color.green : color.red
+
+    qText = str.tostring(entryQuality, "#.#") + " / 10"
+    qClr  = entryQuality >= qScoreThresh ? color.green : entryQuality >= qScoreThresh * 0.7 ? color.yellow : color.gray
+
+    table.cell(tbl, 0, 0,  "Metric",       text_color=color.white,  text_size=size.small)
+    table.cell(tbl, 1, 0,  "Value",         text_color=color.white,  text_size=size.small)
+    table.cell(tbl, 0, 1,  "HTF Bias",      text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 1,  htfBias,         text_color=htfClr,       text_size=size.small)
+    table.cell(tbl, 0, 2,  "Session",       text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 2,  sessText,        text_color=sessClr,      text_size=size.small)
+    table.cell(tbl, 0, 3,  "Bull FVGs",     text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 3,  str.tostring(array.size(bullFvgTop)), text_color=#00FFFF, text_size=size.small)
+    table.cell(tbl, 0, 4,  "Bear FVGs",     text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 4,  str.tostring(array.size(bearFvgTop)), text_color=#FF6B6B, text_size=size.small)
+    table.cell(tbl, 0, 5,  "Quality Score", text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 5,  qText,           text_color=qClr,         text_size=size.small)
+    table.cell(tbl, 0, 6,  "Size Score",    text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 6,  str.tostring(sizeScore, "#.#"),   text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 0, 7,  "Body Score",    text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 7,  str.tostring(bodyScore, "#.#"),   text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 0, 8,  "Volume Score",  text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 8,  str.tostring(volScore, "#.#"),    text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 0, 9,  "Nested 1H",    text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 9,  nestedScore > 0 ? "YES (+2)" : "NO", text_color=nestedScore > 0 ? color.green : color.gray, text_size=size.small)
+    table.cell(tbl, 0, 10, "Bull Mitig",    text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 10, bullMitigation ? "YES" : "NO", text_color=bullMitigation ? color.green : color.gray, text_size=size.small)
+    table.cell(tbl, 0, 11, "Bear Mitig",    text_color=color.gray,   text_size=size.small)
+    table.cell(tbl, 1, 11, bearMitigation ? "YES" : "NO", text_color=bearMitigation ? color.red  : color.gray, text_size=size.small)

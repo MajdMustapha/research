@@ -1,0 +1,311 @@
+//@version=5
+strategy("Alpha Meta Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=2, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1, max_boxes_count=200, max_labels_count=200)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  ALPHA META STRATEGY — 4 Layers, 5 Strategies, 1 Script    ║
+// ║                                                              ║
+// ║  Layer 1: MACRO (Weekly VDP bias via HTF)                   ║
+// ║  Layer 2: REGIME (ADX routing — trend vs range)             ║
+// ║  Layer 3: ENTRY (BB+RSI+VWAP combined)                     ║
+// ║  Layer 4: PRECISION (FVG + CVD confirmation)                ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// === INPUTS ===
+// Macro
+htfTF      = input.timeframe("W", "HTF Bias TF", group="1. Macro (VDP)")
+emaFast    = input.int(21, "EMA Fast", group="1. Macro (VDP)")
+emaMid     = input.int(50, "EMA Mid", group="1. Macro (VDP)")
+emaSlow    = input.int(200, "EMA Slow", group="1. Macro (VDP)")
+
+// Regime
+adxLen     = input.int(14, "ADX Length", group="2. Regime")
+adxRange   = input.int(20, "ADX Ranging Threshold", group="2. Regime")
+adxTrend   = input.int(25, "ADX Trending Threshold", group="2. Regime")
+
+// Entry — Combined BB + RSI + VWAP
+bbLen      = input.int(20, "BB Length", group="3. Entry")
+bbMult     = input.float(2.0, "BB Std Dev", group="3. Entry")
+rsiLen     = input.int(14, "RSI Length", group="3. Entry")
+rsiOB      = input.int(70, "RSI Overbought", group="3. Entry")
+rsiOS      = input.int(30, "RSI Oversold", group="3. Entry")
+rsiExtOB   = input.int(80, "RSI Extreme OB (VWAP fade)", group="3. Entry")
+rsiExtOS   = input.int(20, "RSI Extreme OS (VWAP fade)", group="3. Entry")
+
+// Precision — FVG
+fvgMinPct  = input.float(0.1, "Min FVG Size %", group="4. Precision") / 100
+fvgMaxAge  = input.int(30, "Max FVG Age (bars)", group="4. Precision")
+
+// Risk
+tpRR       = input.float(2.0, "Take Profit R:R", group="5. Risk")
+slAtr      = input.float(1.5, "SL ATR Multiplier", group="5. Risk")
+maxTrades  = input.int(3, "Max Open Signals", group="5. Risk")
+useSession = input.bool(true, "Session Filter (London+NY only)", group="5. Risk")
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER 1: MACRO — HTF Bias (VDP + Tone Vase)
+// ═══════════════════════════════════════════════════════════════
+htfEmaFast  = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaFast))
+htfEmaMid   = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaMid))
+htfEmaSlow  = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaSlow))
+htfRsi      = request.security(syminfo.tickerid, htfTF, ta.rsi(close, rsiLen))
+[htfMacd, htfSig, htfHist] = request.security(syminfo.tickerid, htfTF, ta.macd(close, 12, 26, 9))
+
+htfBullish = htfEmaFast > htfEmaMid and close > htfEmaSlow
+htfBearish = htfEmaFast < htfEmaMid and close < htfEmaSlow
+macroBias  = htfBullish ? 1 : htfBearish ? -1 : 0
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER 2: REGIME — ADX Router
+// ═══════════════════════════════════════════════════════════════
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+isRanging  = adxVal < adxRange
+isTrending = adxVal > adxTrend
+regime     = isRanging ? 0 : isTrending ? 1 : 2  // 0=range, 1=trend, 2=transition
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER 3: ENTRY — Combined BB + RSI + VWAP
+// ═══════════════════════════════════════════════════════════════
+[bbUpper, bbBasis, bbLower] = ta.bb(close, bbLen, bbMult)
+rsiVal     = ta.rsi(close, rsiLen)
+vwapVal    = ta.vwap(hlc3)
+atrVal     = ta.atr(14)
+
+// --- Mean Reversion (Ranging) ---
+// BB + RSI: price at band extremes + RSI confirms
+mrLong  = isRanging and close <= bbLower and rsiVal <= rsiOS
+mrShort = isRanging and close >= bbUpper and rsiVal >= rsiOB
+
+// --- VWAP Fade (Any regime, extreme RSI) ---
+// RSI + VWAP: doubly extended = fade
+vwapLong  = rsiVal < rsiExtOS and close < vwapVal
+vwapShort = rsiVal > rsiExtOB and close > vwapVal
+
+// --- Trend Continuation (Trending) ---
+// In a trend, buy pullbacks to BB basis or VWAP
+trendLong  = isTrending and macroBias == 1 and close <= bbBasis and close >= vwapVal * 0.99 and rsiVal < 50
+trendShort = isTrending and macroBias == -1 and close >= bbBasis and close <= vwapVal * 1.01 and rsiVal > 50
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER 4: PRECISION — FVG Detection
+// ═══════════════════════════════════════════════════════════════
+bullFVG = low > high[2] and (low - high[2]) / close > fvgMinPct
+bearFVG = low[2] > high and (low[2] - high) / close > fvgMinPct
+
+// Track recent FVGs for mitigation
+var float lastBullFvgTop = na
+var float lastBullFvgBot = na
+var int   lastBullFvgBar = na
+var float lastBearFvgTop = na
+var float lastBearFvgBot = na
+var int   lastBearFvgBar = na
+
+if bullFVG
+    lastBullFvgTop := low
+    lastBullFvgBot := high[2]
+    lastBullFvgBar := bar_index
+
+if bearFVG
+    lastBearFvgTop := low[2]
+    lastBearFvgBot := high
+    lastBearFvgBar := bar_index
+
+// Mitigation: price enters active FVG
+bullMitig = not na(lastBullFvgBar) and bar_index - lastBullFvgBar < fvgMaxAge and low <= lastBullFvgTop and close > lastBullFvgBot
+bearMitig = not na(lastBearFvgBar) and bar_index - lastBearFvgBar < fvgMaxAge and high >= lastBearFvgBot and close < lastBearFvgTop
+
+// FVG boxes
+var box lastBullBox = na
+var box lastBearBox = na
+if bullFVG
+    lastBullBox := box.new(bar_index - 2, lastBullFvgTop, bar_index + 15, lastBullFvgBot, border_color=color.new(#00FFFF, 30), bgcolor=color.new(#00FFFF, 90))
+if bearFVG
+    lastBearBox := box.new(bar_index - 2, lastBearFvgTop, bar_index + 15, lastBearFvgBot, border_color=color.new(#FF6B6B, 30), bgcolor=color.new(#FF6B6B, 90))
+
+// ═══════════════════════════════════════════════════════════════
+// CVD APPROXIMATION (Layer 4 confirmation)
+// ═══════════════════════════════════════════════════════════════
+delta    = close > open ? volume * (close - open) / (high - low + 0.0001) : close < open ? -volume * (open - close) / (high - low + 0.0001) : 0
+cvd      = ta.cum(delta)
+cvdEma   = ta.ema(cvd, 5)
+cvdRising  = cvdEma > cvdEma[3]
+cvdFalling = cvdEma < cvdEma[3]
+
+// ═══════════════════════════════════════════════════════════════
+// SESSION FILTER
+// ═══════════════════════════════════════════════════════════════
+inSession = true
+if useSession
+    utcHour = hour(time, "UTC")
+    // London: 07-16 UTC, NY: 13-21 UTC, Overlap: 13-16 UTC
+    inSession := utcHour >= 7 and utcHour <= 21
+
+// ═══════════════════════════════════════════════════════════════
+// SIGNAL SCORING — combine layers
+// ═══════════════════════════════════════════════════════════════
+var float longScore = 0.0
+var float shortScore = 0.0
+
+longScore  := 0
+shortScore := 0
+
+// Macro alignment (+2)
+if macroBias == 1
+    longScore += 2
+if macroBias == -1
+    shortScore += 2
+
+// Entry signals (+2 each)
+if mrLong
+    longScore += 2
+if mrShort
+    shortScore += 2
+if vwapLong
+    longScore += 2
+if vwapShort
+    shortScore += 2
+if trendLong
+    longScore += 2
+if trendShort
+    shortScore += 2
+
+// FVG precision (+1.5)
+if bullMitig
+    longScore += 1.5
+if bearMitig
+    shortScore += 1.5
+
+// CVD confirmation (+1)
+if cvdRising
+    longScore += 1
+if cvdFalling
+    shortScore += 1
+
+// Session bonus (+0.5)
+if inSession
+    longScore += 0.5
+    shortScore += 0.5
+
+// ═══════════════════════════════════════════════════════════════
+// TRADE EXECUTION
+// ═══════════════════════════════════════════════════════════════
+minScore     = 4.0  // Need at least 4 points to enter
+longEntry    = longScore >= minScore and shortScore < 3 and strategy.position_size == 0
+shortEntry   = shortScore >= minScore and longScore < 3 and strategy.position_size == 0
+
+slDist       = atrVal * slAtr
+tpDist       = slDist * tpRR
+
+if longEntry and inSession
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long TP/SL", "Long", limit=close + tpDist, stop=close - slDist)
+
+if shortEntry and inSession
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short TP/SL", "Short", limit=close - tpDist, stop=close + slDist)
+
+// ═══════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════
+// EMAs (from HTF)
+plot(htfEmaFast, "HTF EMA Fast", color=color.new(color.yellow, 30), linewidth=1)
+plot(htfEmaMid, "HTF EMA Mid", color=color.new(color.orange, 30), linewidth=1)
+
+// BB
+p1 = plot(bbUpper, "BB Upper", color=color.new(color.red, 60))
+p2 = plot(bbLower, "BB Lower", color=color.new(color.green, 60))
+p3 = plot(bbBasis, "BB Mid", color=color.new(color.gray, 40), linewidth=1)
+fill(p1, p3, color=color.new(color.red, 95))
+fill(p3, p2, color=color.new(color.green, 95))
+
+// VWAP
+plot(vwapVal, "VWAP", color=color.new(color.purple, 20), linewidth=2, style=plot.style_stepline)
+
+// Signal markers
+plotshape(longEntry, "Long Signal", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortEntry, "Short Signal", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// Score bar colors
+barcolor(longScore >= minScore ? color.new(color.green, 30) : shortScore >= minScore ? color.new(color.red, 30) : na)
+
+// Background for regime
+bgcolor(isRanging ? color.new(color.blue, 96) : isTrending ? color.new(color.orange, 96) : na, title="Regime BG")
+
+// === HIDDEN PLOTS for MCP ===
+plot(longScore, "Long Score", display=display.status_line, color=color.new(color.purple, 100))
+plot(shortScore, "Short Score", display=display.status_line, color=color.new(color.purple, 100))
+plot(rsiVal, "RSI", display=display.status_line, color=color.new(color.purple, 100))
+plot(adxVal, "ADX", display=display.status_line, color=color.new(color.purple, 100))
+plot(macroBias, "Macro Bias", display=display.status_line, color=color.new(color.purple, 100))
+
+// ═══════════════════════════════════════════════════════════════
+// INFO TABLE — Bloomberg-style
+// ═══════════════════════════════════════════════════════════════
+var table tbl = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, 15), border_width=1, border_color=color.new(#333333, 0))
+
+if barstate.islast
+    // Header
+    table.cell(tbl, 0, 0, "ALPHA META", text_color=#FFD700, text_size=size.small, text_halign=text.align_left)
+    table.cell(tbl, 1, 0, "STRATEGY", text_color=#FFD700, text_size=size.small)
+
+    // Layer 1: Macro
+    macroText = macroBias == 1 ? "BULLISH" : macroBias == -1 ? "BEARISH" : "NEUTRAL"
+    macroCol  = macroBias == 1 ? color.green : macroBias == -1 ? color.red : color.gray
+    table.cell(tbl, 0, 1, "L1 MACRO", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 1, macroText, text_color=macroCol, text_size=size.small)
+
+    // Layer 2: Regime
+    regText = isRanging ? "RANGING" : isTrending ? "TRENDING" : "TRANSITION"
+    regCol  = isRanging ? #4FC3F7 : isTrending ? #FFB74D : color.gray
+    table.cell(tbl, 0, 2, "L2 REGIME", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 2, regText + " (ADX " + str.tostring(adxVal, "#.#") + ")", text_color=regCol, text_size=size.small)
+
+    // Layer 3: Entries
+    entryText = mrLong ? "MR LONG" : mrShort ? "MR SHORT" : vwapLong ? "VWAP LONG" : vwapShort ? "VWAP SHORT" : trendLong ? "TREND LONG" : trendShort ? "TREND SHORT" : "—"
+    entryCol  = mrLong or vwapLong or trendLong ? color.green : mrShort or vwapShort or trendShort ? color.red : color.gray
+    table.cell(tbl, 0, 3, "L3 ENTRY", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 3, entryText, text_color=entryCol, text_size=size.small)
+
+    // Layer 4: Precision
+    precText = bullMitig ? "FVG BULL ✔" : bearMitig ? "FVG BEAR ✔" : "—"
+    precCol  = bullMitig ? color.green : bearMitig ? color.red : color.gray
+    table.cell(tbl, 0, 4, "L4 FVG", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 4, precText, text_color=precCol, text_size=size.small)
+
+    // CVD
+    cvdText = cvdRising ? "RISING ↑" : cvdFalling ? "FALLING ↓" : "FLAT"
+    cvdCol  = cvdRising ? color.green : cvdFalling ? color.red : color.gray
+    table.cell(tbl, 0, 5, "L4 CVD", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 5, cvdText, text_color=cvdCol, text_size=size.small)
+
+    // Scores
+    table.cell(tbl, 0, 6, "LONG SCORE", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 6, str.tostring(longScore, "#.#") + " / " + str.tostring(minScore, "#"), text_color=longScore >= minScore ? color.green : color.gray, text_size=size.small)
+
+    table.cell(tbl, 0, 7, "SHORT SCORE", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 7, str.tostring(shortScore, "#.#") + " / " + str.tostring(minScore, "#"), text_color=shortScore >= minScore ? color.red : color.gray, text_size=size.small)
+
+    // Indicators
+    rsiCol = rsiVal > rsiOB ? color.red : rsiVal < rsiOS ? color.green : color.gray
+    table.cell(tbl, 0, 8, "RSI", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 8, str.tostring(rsiVal, "#.#"), text_color=rsiCol, text_size=size.small)
+
+    table.cell(tbl, 0, 9, "VWAP", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 9, str.tostring(vwapVal, format.mintick), text_color=color.purple, text_size=size.small)
+
+    table.cell(tbl, 0, 10, "BB RANGE", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 10, str.tostring(bbLower, format.mintick) + " — " + str.tostring(bbUpper, format.mintick), text_color=color.gray, text_size=size.small)
+
+    table.cell(tbl, 0, 11, "ATR SL", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 11, str.tostring(slDist, format.mintick), text_color=color.orange, text_size=size.small)
+
+    // Session
+    sessText = inSession ? "ACTIVE" : "CLOSED"
+    sessCol  = inSession ? color.green : color.red
+    table.cell(tbl, 0, 12, "SESSION", text_color=#888, text_size=size.tiny)
+    table.cell(tbl, 1, 12, sessText, text_color=sessCol, text_size=size.small)
+
+    // Signal
+    sigText = longEntry ? ">>> LONG <<<" : shortEntry ? ">>> SHORT <<<" : "NO SIGNAL"
+    sigCol  = longEntry ? color.green : shortEntry ? color.red : #333
+    table.cell(tbl, 0, 13, "SIGNAL", text_color=color.white, text_size=size.small)
+    table.cell(tbl, 1, 13, sigText, text_color=sigCol, text_size=size.small)

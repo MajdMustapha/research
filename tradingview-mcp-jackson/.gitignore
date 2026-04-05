@@ -1,0 +1,10 @@
+node_modules/
+screenshots/
+scripts/current.pine
+temp_*
+*.log
+discovery-log.json
+.mcp.json.env
+.last_alert_state.json
+.multi_strategy_state.json
+screenshots/

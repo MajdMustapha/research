@@ -1,0 +1,42 @@
+{
+  "name": "Alpha Meta Strategy",
+  "author": "Combined — VDP + RSI+VWAP + BB+RSI + CVD + FVG",
+  "type": "Multi-Layer Unified",
+  "timeframe": "60",
+  "alt_timeframes": ["15", "240"],
+  "htf_bias": "W",
+
+  "architecture": {
+    "layer_1_macro": "Weekly EMA 21/50/200 bias (VDP + Tone Vase) — sets bull/bear direction",
+    "layer_2_regime": "ADX routing — ranging (<20) uses mean reversion, trending (>25) uses pullback entries",
+    "layer_3_entry": "Combined BB + RSI + VWAP — three independent signals scored and summed",
+    "layer_4_precision": "FVG mitigation + CVD momentum confirmation"
+  },
+
+  "scoring": {
+    "macro_alignment": "+2 points",
+    "entry_signal": "+2 points (mean reversion, VWAP fade, or trend pullback)",
+    "fvg_mitigation": "+1.5 points",
+    "cvd_confirmation": "+1 point",
+    "session_active": "+0.5 points",
+    "min_score_to_enter": 4.0,
+    "note": "Higher score = higher conviction. 4+ = valid signal. 6+ = high conviction."
+  },
+
+  "watchlist": ["BTCUSD", "ETHUSD", "SOLUSD", "EURUSD", "XAUUSD"],
+
+  "risk_rules": [
+    "ATR-based stop loss (1.5x ATR)",
+    "Take profit at 2:1 R:R",
+    "Session filter: London + NY hours only",
+    "Max 3 concurrent signals",
+    "2% position size per trade"
+  ],
+
+  "when_to_use": {
+    "ranging_market": "BB+RSI mean reversion signals dominate (ADX < 20)",
+    "trending_market": "Trend pullback entries + FVG precision (ADX > 25)",
+    "extreme_moves": "VWAP fade signals fire (RSI < 20 or > 80)",
+    "all_conditions": "Macro bias + regime + entry + precision all align = highest conviction"
+  }
+}

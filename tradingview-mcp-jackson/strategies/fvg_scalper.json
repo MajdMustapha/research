@@ -1,0 +1,106 @@
+{
+  "name": "FVG Scalper (Ramzi Saoud)",
+  "author": "@ramzi_saoud",
+  "source": "Instagram Reel, Mar 30 2026",
+  "type": "ICT / Smart Money Concepts",
+  "timeframe": "15",
+  "alt_timeframes": [
+    "30"
+  ],
+  "htf_bias": "D",
+  "difficulty": "Advanced",
+  "reported_stats": {
+    "win_rate": "High (claimed)",
+    "note": "Cherry-picked examples in reel — must validate with backtest"
+  },
+  "watchlist": [
+    "EURUSD",
+    "GBPUSD",
+    "XAUUSD",
+    "BTCUSD",
+    "NAS100"
+  ],
+  "indicators": {
+    "FVG Detection": "3-candle imbalance — gap between candle 1 high and candle 3 low",
+    "HTF Bias": "D1/W1 EMA 20 — only trade in direction of higher timeframe",
+    "Liquidity Sweep": "Price takes out swing highs/lows then reverses",
+    "Market Structure Shift": "Break of recent swing high (bullish) or low (bearish)"
+  },
+  "entry_rules": {
+    "long": [
+      "D1 bias is bullish (close > EMA 20)",
+      "Liquidity sweep of lows on M15/M30",
+      "Bullish Market Structure Shift (break above recent lower high)",
+      "Bullish FVG forms after the MSS",
+      "Price returns to mitigate the FVG (enters the gap zone)",
+      "Rejection candle or strong close above FVG low",
+      "Enter on close of confirmation candle"
+    ],
+    "short": [
+      "D1 bias is bearish (close < EMA 20)",
+      "Liquidity sweep of highs on M15/M30",
+      "Bearish Market Structure Shift (break below recent higher low)",
+      "Bearish FVG forms after the MSS",
+      "Price returns to mitigate the FVG (enters the gap zone)",
+      "Rejection candle or strong close below FVG high",
+      "Enter on close of confirmation candle"
+    ]
+  },
+  "exit_rules": {
+    "stop_loss": "Just beyond opposite side of FVG + 0.3% buffer (8-15 pips on M15)",
+    "tp1": "1:2 R:R (close 50% here)",
+    "tp2": "Next liquidity pool or opposite FVG",
+    "tp3_runner": "Trail stop using previous swing or 1:3+ RR"
+  },
+  "risk_rules": [
+    "Max 0.5-1% risk per trade",
+    "Max 2-3 trades per session",
+    "FVG must be fresh (< 4-6 hours / 24 bars old)",
+    "Only trade during London open + NY overlap",
+    "Avoid Asian session and news events"
+  ],
+  "confluences_required": [
+    "HTF POI alignment (order block, breaker, or FVG on D1)",
+    "Liquidity sweep before MSS",
+    "Session timing (London/NY)",
+    "No upcoming news events"
+  ],
+  "red_flags": [
+    "Trading against HTF bias",
+    "FVG older than 6 hours",
+    "No prior liquidity sweep",
+    "Asian session / low volume",
+    "News within 30 minutes"
+  ],
+  "sessions": {
+    "best": [
+      "London open (08:00-10:00 UTC)",
+      "NY open (13:30-16:00 UTC)",
+      "London/NY overlap (13:30-16:00 UTC)"
+    ],
+    "avoid": [
+      "Asian session (00:00-07:00 UTC)",
+      "Friday after 20:00 UTC"
+    ]
+  },
+  "tv_strategy_tester": {
+    "BTC 15M": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "1.25",
+        "Gross Loss": "1.47",
+        "Total Trades": "5",
+        "Win Rate": "40.00%",
+        "Profit Factor": "0.847"
+      },
+      "win_rate": 40,
+      "profit_factor": 0.847,
+      "total_trades": 5,
+      "net_profit": "unknown"
+    },
+    "_recommendations": [
+      "BTC 15M: Very few trades — try longer timeframe or wider date range for more data",
+      "BTC 15M: Profit factor below 1 — strategy loses money. Review exit logic"
+    ]
+  }
+}

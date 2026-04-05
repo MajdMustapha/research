@@ -1,0 +1,85 @@
+{
+  "author": "LewisWJackson",
+  "watchlist": [
+    "BTCUSD",
+    "ETHUSD",
+    "SOLUSD",
+    "XRPUSD",
+    "LINKUSD",
+    "PEPEUSDT"
+  ],
+  "default_timeframe": "W",
+  "strategy": {
+    "name": "Van de Pop + Tone Vase Hybrid",
+    "description": "Weekly swing trading setup combining Van de Pop buy zones with Tone Vase MACD confirmation. Buy dips into key zones when momentum is still bullish.",
+    "indicators": [
+      "EMA 21",
+      "EMA 50",
+      "EMA 200",
+      "RSI 14",
+      "MACD (default 12, 26, 9)"
+    ]
+  },
+  "bias_criteria": {
+    "bullish": [
+      "Price pulls back into buy zone (near EMA 21 or EMA 50 support)",
+      "RSI between 35 and 58 (oversold but not capitulation)",
+      "MACD still bullish (histogram positive or crossing up)",
+      "Price above the 200 EMA on the weekly"
+    ],
+    "bearish": [
+      "Price below all three EMAs (21, 50, 200)",
+      "RSI above 70 or falling from overbought",
+      "MACD histogram turning negative / bearish crossover",
+      "No buy zone support nearby"
+    ],
+    "neutral": [
+      "Price chopping between EMAs with no clear direction",
+      "RSI between 45 and 55",
+      "MACD flat or near zero line"
+    ]
+  },
+  "entry_rules": {
+    "long": [
+      "Price dips into Van de Pop buy zone",
+      "RSI 35-58 (room to run, not overbought)",
+      "MACD bullish or crossing bullish",
+      "Weekly close above EMA 21 or EMA 50 confirms entry"
+    ],
+    "short": [
+      "Not primary strategy — Lewis focuses on buying dips, not shorting"
+    ]
+  },
+  "risk_rules": [
+    "Only take trades where R:R is at least 1:2",
+    "Buy the dip — accumulate on pullbacks, don't chase",
+    "No emotional entries — if the setup isn't there, wait",
+    "Strategy is automated — trust the rules, remove emotion",
+    "Maximum positions across watchlist, don't overconcentrate"
+  ],
+  "notes": "Lewis's approach: weekly swing trading crypto, buying dips into key zones with RSI + MACD confirmation. Based on Van de Pop (buy zones, RSI ranges) and Tone Vase (MACD structure). The Pine script should flag buy zones where price pulls back with RSI 35-58 and MACD still bullish. Morning brief should scan all watchlist assets and report which are in/near buy zones.",
+  "backtest_results": {
+    "VDP Bear 2022": {
+      "period": "2022-01-01 → 2023-01-01",
+      "candles": 60,
+      "signals": 11,
+      "trades": 3,
+      "wins": 0,
+      "losses": 3,
+      "win_rate": "0%",
+      "total_return": "-26.94%",
+      "tested_on": "2026-04-05"
+    },
+    "VDP Bull 2024": {
+      "period": "2024-01-01 → 2024-12-01",
+      "candles": 60,
+      "signals": 0,
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "win_rate": "-%",
+      "total_return": "0.00%",
+      "tested_on": "2026-04-05"
+    }
+  }
+}

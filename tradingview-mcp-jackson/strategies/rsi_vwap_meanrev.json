@@ -1,0 +1,107 @@
+{
+  "name": "RSI + VWAP Mean Reversion",
+  "author": "@0x_Discover",
+  "source": "X post, Mar 30 2026 — live tested",
+  "type": "Counter-trend / Mean Reversion",
+  "timeframe": "60",
+  "reported_stats": {
+    "win_rate": "74%",
+    "sharpe": 2.1,
+    "trades": 23,
+    "note": "Small sample — validate with backtest"
+  },
+  "watchlist": [
+    "BTCUSD",
+    "ETHUSD",
+    "SPXUSD",
+    "EURUSD"
+  ],
+  "indicators": {
+    "RSI": {
+      "length": 14,
+      "overbought": 80,
+      "oversold": 20
+    },
+    "VWAP": {
+      "anchor": "daily",
+      "source": "hlc3"
+    }
+  },
+  "entry_rules": {
+    "long": [
+      "RSI drops below 20",
+      "Price is below VWAP",
+      "Both on the same candle",
+      "Enter at open of next candle"
+    ],
+    "short": [
+      "RSI rises above 80",
+      "Price is above VWAP",
+      "Both on the same candle",
+      "Enter at open of next candle"
+    ]
+  },
+  "exit_rules": {
+    "take_profit": "RSI returns to 50 OR price crosses back through VWAP",
+    "stop_loss": "Above trigger candle high (shorts) / below trigger candle low (longs)",
+    "time_exit": "8 candles with no exit condition met"
+  },
+  "risk_rules": [
+    "Risk 1-2% of account per trade",
+    "Minimum R:R 1.5:1 before entering",
+    "Do NOT trade during FOMC, CPI, earnings",
+    "Works best on: BTC, ETH, SPY, ES, major Forex",
+    "Avoid: low-volume altcoins, illiquid stocks"
+  ],
+  "red_flags": [
+    "Price on same side of VWAP for 10+ candles (trending — skip)",
+    "RSI stuck above 70 for extended period (strong trend, not exhaustion)",
+    "Low volume hours (pre-market, late Friday)",
+    "News release within 30 minutes"
+  ],
+  "backtest_results": {
+    "RSI+VWAP Bear Q1-25": {
+      "error": "Replay start failed: Replay failed to start. The selected date may not have data for this timeframe. Try a more recent date or a higher timeframe (e.g., Daily)."
+    },
+    "RSI+VWAP Bull Q4-24": {
+      "error": "Replay start failed: Replay failed to start. The selected date may not have data for this timeframe. Try a more recent date or a higher timeframe (e.g., Daily)."
+    },
+    "_observations": []
+  },
+  "tv_strategy_tester": {
+    "BTC 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "12.57",
+        "Gross Loss": "11.66",
+        "Total Trades": "7",
+        "Win Rate": "42.86%",
+        "Profit Factor": "1.079"
+      },
+      "win_rate": 42.86,
+      "profit_factor": 1.079,
+      "total_trades": 7,
+      "net_profit": "unknown"
+    },
+    "ETH 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "6.56",
+        "Gross Loss": "11.26",
+        "Total Trades": "3",
+        "Win Rate": "33.33%",
+        "Profit Factor": "0.583"
+      },
+      "win_rate": 33.33,
+      "profit_factor": 0.583,
+      "total_trades": 3,
+      "net_profit": "unknown"
+    },
+    "_recommendations": [
+      "BTC 1H: Very few trades — try longer timeframe or wider date range for more data",
+      "ETH 1H: Very few trades — try longer timeframe or wider date range for more data",
+      "ETH 1H: Win rate below 40% — consider tightening entries or widening TP",
+      "ETH 1H: Profit factor below 1 — strategy loses money. Review exit logic"
+    ]
+  }
+}

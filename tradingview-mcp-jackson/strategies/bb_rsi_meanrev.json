@@ -1,0 +1,137 @@
+{
+  "name": "BB + RSI Mean Reversion",
+  "author": "@DaviddDotTech",
+  "source": "X post, Apr 2023 — backtested on TradingView",
+  "type": "Mean Reversion / Oscillator Combo",
+  "timeframe": "60",
+  "alt_timeframes": [
+    "240",
+    "D"
+  ],
+  "difficulty": "Beginner-friendly",
+  "reported_stats": {
+    "win_rate": "66%",
+    "cumulative_profit": "540%+",
+    "note": "Multi-year backtest, no leverage"
+  },
+  "watchlist": [
+    "BTCUSD",
+    "ETHUSD",
+    "SPXUSD",
+    "EURUSD",
+    "QQQUSD"
+  ],
+  "indicators": {
+    "Bollinger Bands": {
+      "length": 20,
+      "std_dev": 2
+    },
+    "RSI": {
+      "length": 14,
+      "overbought": 70,
+      "oversold": 30
+    },
+    "ADX": {
+      "length": 14,
+      "max_for_ranging": 20
+    }
+  },
+  "entry_rules": {
+    "long": [
+      "Price touches or closes below lower Bollinger Band",
+      "RSI is below 30 (oversold)",
+      "ADX is below 20 (ranging market — regime filter)",
+      "Both conditions on same candle",
+      "Enter at open of next candle"
+    ],
+    "short": [
+      "Price touches or closes above upper Bollinger Band",
+      "RSI is above 70 (overbought)",
+      "ADX is below 20 (ranging market — regime filter)",
+      "Both conditions on same candle",
+      "Enter at open of next candle"
+    ]
+  },
+  "exit_rules": {
+    "take_profit_primary": "Price returns to middle band (20 SMA)",
+    "take_profit_extended": "Price reaches opposite band (stronger setups)",
+    "stop_loss": "Beyond outer band + 0.5% buffer",
+    "time_exit": "10 candles with no exit condition"
+  },
+  "risk_rules": [
+    "Risk 1-2% of account per trade",
+    "Minimum R:R 1.5:1 before entering",
+    "Mean reversion strategy — do NOT use in trending markets",
+    "Best on: SPY, QQQ, major Forex, BTC/ETH in ranges",
+    "Worst: strong directional trends — price walks the band"
+  ],
+  "regime_check": {
+    "ranging_use_strategy": [
+      "Price oscillating across middle band",
+      "Bands flat/parallel",
+      "ADX below 20"
+    ],
+    "trending_skip": [
+      "Price on same side of middle band 10+ candles",
+      "Bands widening (expanding volatility)",
+      "ADX above 25"
+    ]
+  },
+  "red_flags": [
+    "ADX > 25 (trending market)",
+    "Bands expanding rapidly (volatility event)",
+    "Price walking the band (3+ candles touching upper/lower)",
+    "Major news imminent",
+    "Only one condition met (need both BB touch + RSI extreme)"
+  ],
+  "backtest_targets": {
+    "win_rate": "> 55%",
+    "profit_factor": "> 1.5",
+    "max_drawdown": "< 20%",
+    "min_trades": "> 50"
+  },
+  "backtest_results": {
+    "BB+RSI Range Q2-24": {
+      "error": "Replay start failed: Replay failed to start. The selected date may not have data for this timeframe. Try a more recent date or a higher timeframe (e.g., Daily)."
+    },
+    "BB+RSI Bear Q1-25": {
+      "error": "Replay start failed: Replay failed to start. The selected date may not have data for this timeframe. Try a more recent date or a higher timeframe (e.g., Daily)."
+    },
+    "_observations": []
+  },
+  "tv_strategy_tester": {
+    "BTC 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "142.48",
+        "Gross Loss": "66.06",
+        "Total Trades": "51",
+        "Win Rate": "62.75%",
+        "Profit Factor": "2.157"
+      },
+      "win_rate": 62.75,
+      "profit_factor": 2.157,
+      "total_trades": 51,
+      "net_profit": "unknown"
+    },
+    "BTC 4H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "126.41",
+        "Gross Loss": "120.85",
+        "Total Trades": "39",
+        "Win Rate": "56.41%",
+        "Profit Factor": "1.046"
+      },
+      "win_rate": 56.41,
+      "profit_factor": 1.046,
+      "total_trades": 39,
+      "net_profit": "unknown"
+    },
+    "_recommendations": [
+      "BTC 1H: Win rate above 60% — solid foundation",
+      "BTC 1H: Profit factor above 1.5 — strategy has edge",
+      "BTC 1H: Profit factor above 2 — strong strategy"
+    ]
+  }
+}

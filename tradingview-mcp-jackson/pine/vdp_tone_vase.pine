@@ -1,0 +1,183 @@
+//@version=5
+strategy("VDP + Tone Vase Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=2, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1, max_labels_count=500)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  VDP + Tone Vase — Weekly Swing Strategy (v3)               ║
+// ║                                                              ║
+// ║  Changes from v1/v2:                                        ║
+// ║  - Converted to strategy() for proper backtesting           ║
+// ║  - Dynamic proximity based on ATR (not fixed %)             ║
+// ║  - MACD crossover confirmation (not just histogram level)   ║
+// ║  - RSI range 30-55 (closer to Van de Pop's actual method)   ║
+// ║  - ATR trailing stop (not fixed % SL)                       ║
+// ║  - Volume relative to its own SMA (not absolute threshold)  ║
+// ║  - Bear market filter: skip if 200 EMA declining            ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// === INPUTS ===
+emaFast   = input.int(21,  "EMA Fast", group="EMAs")
+emaMid    = input.int(50,  "EMA Mid", group="EMAs")
+emaSlow   = input.int(200, "EMA Slow", group="EMAs")
+rsiLen    = input.int(14,  "RSI Length", group="Momentum")
+rsiMax    = input.int(55,  "RSI Max for Entry", group="Momentum")
+rsiMin    = input.int(30,  "RSI Min for Entry", group="Momentum")
+macdFast  = input.int(12,  "MACD Fast", group="Momentum")
+macdSlow  = input.int(26,  "MACD Slow", group="Momentum")
+macdSig   = input.int(9,   "MACD Signal", group="Momentum")
+atrLen    = input.int(14,  "ATR Length", group="Risk")
+atrSlMult = input.float(2.0, "SL ATR Multiplier", group="Risk")
+atrTpMult = input.float(3.0, "TP ATR Multiplier (initial)", group="Risk")
+trailMult = input.float(2.5, "Trail ATR Multiplier", group="Risk")
+proxMult  = input.float(1.5, "Proximity ATR Multiplier", group="Buy Zone")
+volMinRatio = input.float(0.7, "Min Volume Ratio", group="Volume")
+
+// === CALCULATIONS ===
+ema21   = ta.ema(close, emaFast)
+ema50   = ta.ema(close, emaMid)
+ema200  = ta.ema(close, emaSlow)
+rsiVal  = ta.rsi(close, rsiLen)
+[macdLine, signalLine, macdHist] = ta.macd(close, macdFast, macdSlow, macdSig)
+atrVal  = ta.atr(atrLen)
+volSma  = ta.sma(volume, 20)
+volRatio = volume / volSma
+
+// === EMA TREND HEALTH ===
+// 200 EMA must be flat or rising — declining 200 EMA = bear market, skip
+ema200Slope = ema200 - ema200[5]
+ema200Rising = ema200Slope > 0
+ema200Flat   = math.abs(ema200Slope) / ema200 < 0.005  // < 0.5% change over 5 bars
+trendHealthy = ema200Rising or ema200Flat
+
+// === DYNAMIC PROXIMITY ===
+// Use ATR to define "near EMA" — adapts to volatility instead of fixed %
+nearEma21 = math.abs(close - ema21) < atrVal * proxMult
+nearEma50 = math.abs(close - ema50) < atrVal * proxMult
+
+// === BUY ZONE CONDITIONS ===
+// Core: price pulling back to EMA support
+priceAtSupport = nearEma21 or nearEma50
+aboveEma200    = close > ema200
+
+// Momentum: RSI in the "room to run" zone (not overbought, not capitulating)
+rsiInRange = rsiVal >= rsiMin and rsiVal <= rsiMax
+
+// MACD: histogram turning positive or crossover happening
+// v3 change: require MACD to be IMPROVING (hist > hist[1]) not just above a level
+macdImproving = macdHist > macdHist[1] and macdHist > macdHist[2]
+macdCross     = ta.crossover(macdLine, signalLine)
+macdOk        = macdImproving or macdCross or macdHist > 0
+
+// Volume: at least 70% of average (not dead volume)
+volOk = volRatio >= volMinRatio
+
+// === COMPOSITE BUY ZONE ===
+buyZone      = priceAtSupport and aboveEma200 and trendHealthy
+confirmed    = buyZone and rsiInRange and macdOk and volOk
+weakSignal   = buyZone and not confirmed
+
+// === ENTRY ===
+var float entryPrice = na
+var float trailStop  = na
+
+if confirmed and strategy.position_size == 0
+    entryPrice := close
+    trailStop  := na
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Initial SL/TP", "Long", stop=close - atrVal * atrSlMult, limit=close + atrVal * atrTpMult)
+
+// === TRAILING STOP (after initial TP zone) ===
+if strategy.position_size > 0
+    // Once in profit by 1.5 ATR, start trailing
+    if not na(entryPrice) and close > entryPrice + atrVal * 1.5
+        newTrail = close - atrVal * trailMult
+        trailStop := na(trailStop) ? newTrail : math.max(trailStop, newTrail)
+
+    // Trail exit
+    if not na(trailStop) and close < trailStop
+        strategy.close("Long", comment="Trail")
+        trailStop := na
+
+    // Invalidation: close below 200 EMA = thesis broken
+    if close < ema200
+        strategy.close("Long", comment="Below 200")
+        trailStop := na
+
+// === PLOTS ===
+plot(ema21,  "EMA 21",  color=color.new(color.yellow, 0), linewidth=2)
+plot(ema50,  "EMA 50",  color=color.new(color.orange, 0), linewidth=2)
+plot(ema200, "EMA 200", color=color.new(color.red, 0),    linewidth=2)
+
+// Trail stop line
+plot(strategy.position_size > 0 and not na(trailStop) ? trailStop : na, "Trail Stop", color=color.new(color.fuchsia, 0), linewidth=1, style=plot.style_stepline)
+
+// Buy zone backgrounds
+bgcolor(confirmed ? color.new(color.green, 85) : weakSignal ? color.new(color.orange, 92) : na, title="Buy Zone")
+
+// Signal markers
+plotshape(confirmed and strategy.position_size == 0, "Buy Signal", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(weakSignal, "Weak Signal", shape.diamond, location.belowbar, color.orange, size=size.tiny)
+
+// Bear market warning
+bgcolor(not trendHealthy and aboveEma200 ? color.new(color.red, 95) : na, title="Bear Warning")
+
+// === HIDDEN PLOTS for MCP ===
+plot(rsiVal,      "RSI",        display=display.status_line, color=color.new(color.purple, 100))
+plot(macdHist,    "MACD Hist",  display=display.status_line, color=color.new(color.purple, 100))
+plot(volRatio,    "Vol Ratio",  display=display.status_line, color=color.new(color.purple, 100))
+plot(confirmed ? 1 : weakSignal ? 0.5 : 0, "Signal", display=display.status_line, color=color.new(color.purple, 100))
+
+// === INFO TABLE ===
+var table tbl = table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, 15), border_width=1)
+
+if barstate.islast
+    table.cell(tbl, 0, 0, "VDP+TV v3", text_color=#FFD700, text_size=size.small)
+    table.cell(tbl, 1, 0, "STRATEGY", text_color=#FFD700, text_size=size.small)
+
+    // EMA values
+    table.cell(tbl, 0, 1, "EMA 21", text_color=color.yellow, text_size=size.small)
+    table.cell(tbl, 1, 1, str.tostring(ema21, format.mintick), text_color=color.yellow, text_size=size.small)
+    table.cell(tbl, 0, 2, "EMA 50", text_color=color.orange, text_size=size.small)
+    table.cell(tbl, 1, 2, str.tostring(ema50, format.mintick), text_color=color.orange, text_size=size.small)
+    table.cell(tbl, 0, 3, "EMA 200", text_color=color.red, text_size=size.small)
+    table.cell(tbl, 1, 3, str.tostring(ema200, format.mintick), text_color=color.red, text_size=size.small)
+
+    // Trend health
+    thColor = trendHealthy ? color.green : color.red
+    thText  = ema200Rising ? "RISING ✓" : ema200Flat ? "FLAT ✓" : "DECLINING ✗"
+    table.cell(tbl, 0, 4, "200 Trend", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 4, thText, text_color=thColor, text_size=size.small)
+
+    // RSI
+    rsiColor = rsiInRange ? color.green : rsiVal > rsiMax ? color.red : color.orange
+    table.cell(tbl, 0, 5, "RSI", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 5, str.tostring(rsiVal, "#.#") + (rsiInRange ? " ✓" : ""), text_color=rsiColor, text_size=size.small)
+
+    // MACD
+    macdColor = macdOk ? color.green : color.red
+    table.cell(tbl, 0, 6, "MACD", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 6, (macdCross ? "CROSS ✓" : macdImproving ? "IMPROVING ✓" : macdHist > 0 ? "POSITIVE" : "NEGATIVE"), text_color=macdColor, text_size=size.small)
+
+    // Volume
+    volColor = volOk ? color.green : color.red
+    table.cell(tbl, 0, 7, "Volume", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 7, str.tostring(volRatio, "#.##") + "x" + (volOk ? " ✓" : " ✗"), text_color=volColor, text_size=size.small)
+
+    // ATR
+    table.cell(tbl, 0, 8, "ATR", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 8, str.tostring(atrVal, format.mintick), text_color=color.gray, text_size=size.small)
+
+    // Proximity
+    proxText = nearEma21 ? "Near EMA 21" : nearEma50 ? "Near EMA 50" : "Away"
+    proxColor = (nearEma21 or nearEma50) ? color.green : color.gray
+    table.cell(tbl, 0, 9, "Proximity", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 9, proxText, text_color=proxColor, text_size=size.small)
+
+    // Signal
+    sigText = confirmed ? ">>> BUY ZONE <<<" : weakSignal ? "WEAK ZONE" : "NO SIGNAL"
+    sigColor = confirmed ? color.green : weakSignal ? color.orange : #333333
+    table.cell(tbl, 0, 10, "SIGNAL", text_color=color.white, text_size=size.small)
+    table.cell(tbl, 1, 10, sigText, text_color=sigColor, text_size=size.small)
+
+    // Trail stop
+    table.cell(tbl, 0, 11, "Trail SL", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 11, strategy.position_size > 0 and not na(trailStop) ? str.tostring(trailStop, format.mintick) : "—", text_color=color.fuchsia, text_size=size.small)

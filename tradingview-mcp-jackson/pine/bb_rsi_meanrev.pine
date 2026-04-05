@@ -1,0 +1,359 @@
+//@version=5
+strategy("BB + RSI Squeeze Mean Reversion", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=3, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.1)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+
+// Bollinger Bands
+bbLen       = input.int(20, "BB Length", minval=10, maxval=50, group="Bollinger Bands")
+bbMult      = input.float(2.0, "BB Std Dev", minval=1.0, maxval=3.0, step=0.1, group="Bollinger Bands")
+
+// Keltner Channel (for squeeze detection)
+kcLen       = input.int(20, "KC Length", minval=10, maxval=50, group="Keltner Channel")
+kcMult      = input.float(1.5, "KC ATR Multiplier", minval=1.0, maxval=3.0, step=0.1, group="Keltner Channel")
+
+// RSI
+rsiLen      = input.int(14, "RSI Length", minval=5, maxval=30, group="RSI")
+rsiOB       = input.int(70, "RSI Overbought", minval=60, maxval=85, group="RSI")
+rsiOS       = input.int(30, "RSI Oversold", minval=15, maxval=40, group="RSI")
+rsiConfBars = input.int(3, "RSI Confirm Within N Bars", minval=1, maxval=5, group="RSI")
+
+// Regime Filter
+adxLen      = input.int(14, "ADX Length", group="Regime Filter")
+adxMax      = input.int(30, "ADX Max (ranging market)", minval=15, maxval=40, group="Regime Filter")
+sqzMinBars  = input.int(1, "Min Squeeze Bars Before Entry", minval=1, maxval=10, group="Regime Filter")
+
+// Risk Management
+atrLen      = input.int(14, "ATR Length", minval=5, maxval=30, group="Risk")
+atrStopMult = input.float(2.0, "ATR Stop Multiplier", minval=0.5, maxval=4.0, step=0.1, group="Risk")
+atrTrailMult = input.float(2.0, "ATR Trail Multiplier", minval=0.5, maxval=4.0, step=0.1, group="Risk")
+trailActivate = input.float(1.0, "ATR Profit to Activate Trail", minval=0.5, maxval=3.0, step=0.1, group="Risk")
+maxBarsExit = input.int(20, "Max Bars in Trade", minval=5, maxval=50, group="Risk")
+
+// ============================================================================
+// CALCULATIONS
+// ============================================================================
+
+// Bollinger Bands
+[bbUpper, bbBasis, bbLower] = ta.bb(close, bbLen, bbMult)
+bbWidth = (bbUpper - bbLower) / bbBasis
+
+// Keltner Channel
+kcBasis = ta.ema(close, kcLen)
+kcAtr   = ta.atr(kcLen)
+kcUpper = kcBasis + kcAtr * kcMult
+kcLower = kcBasis - kcAtr * kcMult
+
+// Squeeze: BB is inside KC = low volatility compression
+squeeze     = bbLower > kcLower and bbUpper < kcUpper
+sqzCount    = ta.barssince(not squeeze)
+sqzRecent   = sqzCount >= sqzMinBars or (not squeeze and squeeze[1] and sqzCount[1] >= sqzMinBars)
+// "Squeeze fired" = BB just expanded outside KC after being inside
+sqzFired    = not squeeze and squeeze[1]
+
+// RSI
+rsiVal = ta.rsi(close, rsiLen)
+
+// ADX
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+
+// ATR for stops
+atrVal = ta.atr(atrLen)
+
+// ============================================================================
+// BB TOUCH + DELAYED RSI CONFIRMATION
+// The key insight: BB touch sets up the zone. RSI confirms within N bars.
+// Also: require close BACK INSIDE the band = actual reversal, not just a touch.
+// ============================================================================
+
+// Track recent BB touches
+var int lastBBLowerTouch = na
+var int lastBBUpperTouch = na
+
+// BB lower band touch (close below or at lower band)
+if close <= bbLower or low <= bbLower
+    lastBBLowerTouch := bar_index
+
+// BB upper band touch (close above or at upper band)
+if close >= bbUpper or high >= bbUpper
+    lastBBUpperTouch := bar_index
+
+// BB touch was recent (within rsiConfBars)
+bbLowerTouchRecent = not na(lastBBLowerTouch) and (bar_index - lastBBLowerTouch) <= rsiConfBars
+bbUpperTouchRecent = not na(lastBBUpperTouch) and (bar_index - lastBBUpperTouch) <= rsiConfBars
+
+// Close back inside the band = reversal confirmation
+closedBackAboveLower = close > bbLower and (not na(lastBBLowerTouch) and (bar_index - lastBBLowerTouch) <= rsiConfBars)
+closedBackBelowUpper = close < bbUpper and (not na(lastBBUpperTouch) and (bar_index - lastBBUpperTouch) <= rsiConfBars)
+
+// RSI was oversold/overbought recently (within rsiConfBars window)
+rsiWasOS = false
+rsiWasOB = false
+for i = 0 to rsiConfBars
+    if rsiVal[i] <= rsiOS
+        rsiWasOS := true
+    if rsiVal[i] >= rsiOB
+        rsiWasOB := true
+
+// RSI is now recovering (not still at extreme)
+rsiRecoveringFromOS = rsiWasOS and rsiVal > rsiOS
+rsiRecoveringFromOB = rsiWasOB and rsiVal < rsiOB
+
+// ============================================================================
+// REGIME FILTER
+// ============================================================================
+
+// Ranging market preferred for mean reversion
+isRanging = adxVal < adxMax
+
+// Band walk detection: if price has been riding the band for 4+ bars, don't enter
+// (trend is too strong for mean reversion)
+bandWalkDown = ta.barssince(close > bbLower) > 4
+bandWalkUp   = ta.barssince(close < bbUpper) > 4
+noBandWalk   = not bandWalkDown and not bandWalkUp
+
+// ============================================================================
+// ENTRY SIGNALS
+// ============================================================================
+
+// Long: BB lower touch recently + RSI confirmed oversold then recovering +
+//       close back inside bands + ranging market + no band walk +
+//       (squeeze recent OR squeeze just fired = volatility about to expand our way)
+longSignal = closedBackAboveLower and rsiRecoveringFromOS and isRanging and noBandWalk and close > open
+
+// Short: mirror logic
+shortSignal = closedBackBelowUpper and rsiRecoveringFromOB and isRanging and noBandWalk and close < open
+
+// ============================================================================
+// POSITION MANAGEMENT
+// ============================================================================
+
+var int   entryBar    = na
+var float entryPrice  = na
+var float stopLoss    = na
+var float trailStop   = na
+var float tp1Target   = na  // Middle band
+var float tp2Target   = na  // Opposite band
+var bool  trailActive = false
+var bool  tp1Hit      = false
+
+// === LONG ENTRY ===
+if longSignal and strategy.position_size == 0
+    entryBar    := bar_index
+    entryPrice  := close
+    stopLoss    := close - atrVal * atrStopMult
+    trailStop   := na
+    trailActive := false
+    tp1Hit      := false
+    tp1Target   := bbBasis   // First target: middle band
+    tp2Target   := bbUpper   // Second target: upper band
+    strategy.entry("Long", strategy.long)
+
+// === SHORT ENTRY ===
+if shortSignal and strategy.position_size == 0
+    entryBar    := bar_index
+    entryPrice  := close
+    stopLoss    := close + atrVal * atrStopMult
+    trailStop   := na
+    trailActive := false
+    tp1Hit      := false
+    tp1Target   := bbBasis
+    tp2Target   := bbLower
+    strategy.entry("Short", strategy.short)
+
+// ============================================================================
+// EXIT LOGIC
+// ============================================================================
+
+barsInTrade = bar_index - nz(entryBar, bar_index)
+
+// === LONG EXITS ===
+if strategy.position_size > 0
+    // Close half at middle band (TP1)
+    if not tp1Hit and close >= tp1Target and barsInTrade >= 2
+        strategy.close("Long", comment="TP1-Mid", qty_percent=50)
+        tp1Hit := true
+        // Move stop to breakeven after TP1
+        stopLoss := math.max(stopLoss, entryPrice)
+
+    // Activate trailing stop after TP1 or sufficient profit
+    if tp1Hit or close > entryPrice + atrVal * trailActivate
+        trailActive := true
+
+    if trailActive
+        newTrail = close - atrVal * atrTrailMult
+        trailStop := na(trailStop) ? newTrail : math.max(trailStop, newTrail)
+
+    // Exit checks
+    hitSL    = close <= stopLoss
+    hitTrail = trailActive and not na(trailStop) and close <= trailStop
+    hitTP2   = tp1Hit and close >= tp2Target
+    hitTime  = barsInTrade >= maxBarsExit
+
+    if hitSL
+        strategy.close("Long", comment="SL")
+        trailActive := false
+        trailStop   := na
+    else if hitTrail
+        strategy.close("Long", comment="Trail")
+        trailActive := false
+        trailStop   := na
+    else if hitTP2
+        strategy.close("Long", comment="TP2-Opp")
+        trailActive := false
+        trailStop   := na
+    else if hitTime
+        strategy.close("Long", comment="Time")
+        trailActive := false
+        trailStop   := na
+
+// === SHORT EXITS ===
+if strategy.position_size < 0
+    // Close half at middle band
+    if not tp1Hit and close <= tp1Target and barsInTrade >= 2
+        strategy.close("Short", comment="TP1-Mid", qty_percent=50)
+        tp1Hit := true
+        stopLoss := math.min(stopLoss, entryPrice)
+
+    if tp1Hit or close < entryPrice - atrVal * trailActivate
+        trailActive := true
+
+    if trailActive
+        newTrail = close + atrVal * atrTrailMult
+        trailStop := na(trailStop) ? newTrail : math.min(trailStop, newTrail)
+
+    hitSL    = close >= stopLoss
+    hitTrail = trailActive and not na(trailStop) and close >= trailStop
+    hitTP2   = tp1Hit and close <= tp2Target
+    hitTime  = barsInTrade >= maxBarsExit
+
+    if hitSL
+        strategy.close("Short", comment="SL")
+        trailActive := false
+        trailStop   := na
+    else if hitTrail
+        strategy.close("Short", comment="Trail")
+        trailActive := false
+        trailStop   := na
+    else if hitTP2
+        strategy.close("Short", comment="TP2-Opp")
+        trailActive := false
+        trailStop   := na
+    else if hitTime
+        strategy.close("Short", comment="Time")
+        trailActive := false
+        trailStop   := na
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+
+// Bollinger Bands
+p1 = plot(bbUpper, "BB Upper", color=color.new(color.red, 20))
+p2 = plot(bbLower, "BB Lower", color=color.new(color.green, 20))
+p3 = plot(bbBasis, "BB Basis", color=color.new(color.gray, 0), linewidth=1)
+fill(p1, p3, color=color.new(color.red, 95))
+fill(p3, p2, color=color.new(color.green, 95))
+
+// Keltner Channel (thin, for squeeze visualization)
+plot(kcUpper, "KC Upper", color=color.new(color.blue, 60), linewidth=1, style=plot.style_circles)
+plot(kcLower, "KC Lower", color=color.new(color.blue, 60), linewidth=1, style=plot.style_circles)
+
+// Entry signals
+plotshape(longSignal and strategy.position_size == 0, "Long Signal", shape.triangleup, location.belowbar, color.lime, size=size.small)
+plotshape(shortSignal and strategy.position_size == 0, "Short Signal", shape.triangledown, location.abovebar, color.fuchsia, size=size.small)
+
+// Squeeze indicator (bottom of chart)
+plotshape(squeeze, "Squeeze On", shape.square, location.bottom, color.new(color.orange, 0), size=size.tiny)
+plotshape(sqzFired, "Squeeze Fired", shape.diamond, location.bottom, color.new(color.aqua, 0), size=size.tiny)
+
+// Stop loss and trail visualization
+plot(strategy.position_size > 0 ? stopLoss : na, "Long SL", color=color.red, style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size < 0 ? stopLoss : na, "Short SL", color=color.red, style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size != 0 and trailActive ? trailStop : na, "Trail Stop", color=color.orange, style=plot.style_linebr, linewidth=1)
+
+// Band walk warning
+bgcolor(bandWalkUp ? color.new(color.red, 95) : bandWalkDown ? color.new(color.green, 95) : na, title="Band Walk Warning")
+
+// Regime background
+bgcolor(not isRanging ? color.new(color.yellow, 95) : na, title="Trending Regime (Filtered)")
+
+// ============================================================================
+// HIDDEN PLOTS FOR MCP
+// ============================================================================
+
+plot(rsiVal,            "RSI",            display=display.status_line, color=color.new(color.purple, 100))
+plot(adxVal,            "ADX",            display=display.status_line, color=color.new(color.purple, 100))
+plot(bbUpper,           "BB Upper Val",   display=display.status_line, color=color.new(color.purple, 100))
+plot(bbBasis,           "BB Basis Val",   display=display.status_line, color=color.new(color.purple, 100))
+plot(bbLower,           "BB Lower Val",   display=display.status_line, color=color.new(color.purple, 100))
+plot(bbWidth * 100,     "BB Width %",     display=display.status_line, color=color.new(color.purple, 100))
+plot(squeeze ? 1 : 0,  "Squeeze Active", display=display.status_line, color=color.new(color.purple, 100))
+plot(sqzFired ? 1 : 0, "Squeeze Fired",  display=display.status_line, color=color.new(color.purple, 100))
+plot(isRanging ? 1 : 0,"Ranging Market",  display=display.status_line, color=color.new(color.purple, 100))
+plot(atrVal,            "ATR",            display=display.status_line, color=color.new(color.purple, 100))
+plot(nz(sqzCount, 0),  "Squeeze Bars",   display=display.status_line, color=color.new(color.purple, 100))
+
+// ============================================================================
+// INFO TABLE
+// ============================================================================
+
+var table infoTbl = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, 20), border_width=1)
+
+if barstate.islast
+    rsiColor  = rsiVal > rsiOB ? color.red : rsiVal < rsiOS ? color.green : color.gray
+    adxColor  = adxVal < adxMax ? color.green : color.red
+    regime    = adxVal < adxMax ? "RANGING" : "TRENDING"
+    sqzText   = squeeze ? "SQUEEZE ON (" + str.tostring(nz(sqzCount, 0)) + " bars)" : sqzFired ? "SQUEEZE FIRED" : "NO SQUEEZE"
+    sqzColor  = squeeze ? color.orange : sqzFired ? color.aqua : color.gray
+
+    bbPos = close > bbUpper ? "ABOVE UPPER" : close < bbLower ? "BELOW LOWER" : close > bbBasis ? "UPPER HALF" : "LOWER HALF"
+    bbPosColor = close > bbUpper ? color.red : close < bbLower ? color.green : color.gray
+
+    posText = strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT"
+    posClr  = strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray
+
+    signal = "NONE"
+    sigColor = color.gray
+    if longSignal and strategy.position_size == 0
+        signal := "LONG ENTRY"
+        sigColor := color.green
+    else if shortSignal and strategy.position_size == 0
+        signal := "SHORT ENTRY"
+        sigColor := color.red
+    else if not isRanging
+        signal := "FILTERED (TREND)"
+        sigColor := color.orange
+    else if bandWalkUp or bandWalkDown
+        signal := "FILTERED (WALK)"
+        sigColor := color.orange
+
+    table.cell(infoTbl, 0, 0,  "Metric",       text_color=color.white, text_size=size.small)
+    table.cell(infoTbl, 1, 0,  "Value",         text_color=color.white, text_size=size.small)
+    table.cell(infoTbl, 0, 1,  "Strategy",      text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 1,  "BB+RSI Squeeze", text_color=color.white, text_size=size.small)
+    table.cell(infoTbl, 0, 2,  "RSI",           text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 2,  str.tostring(rsiVal, "#.#"), text_color=rsiColor, text_size=size.small)
+    table.cell(infoTbl, 0, 3,  "ADX",           text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 3,  str.tostring(adxVal, "#.#"), text_color=adxColor, text_size=size.small)
+    table.cell(infoTbl, 0, 4,  "Regime",        text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 4,  regime,           text_color=adxColor,    text_size=size.small)
+    table.cell(infoTbl, 0, 5,  "Squeeze",       text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 5,  sqzText,          text_color=sqzColor,    text_size=size.small)
+    table.cell(infoTbl, 0, 6,  "BB Upper",      text_color=color.red,   text_size=size.small)
+    table.cell(infoTbl, 1, 6,  str.tostring(bbUpper, format.mintick), text_color=color.red, text_size=size.small)
+    table.cell(infoTbl, 0, 7,  "BB Basis",      text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 7,  str.tostring(bbBasis, format.mintick), text_color=color.gray, text_size=size.small)
+    table.cell(infoTbl, 0, 8,  "BB Lower",      text_color=color.green, text_size=size.small)
+    table.cell(infoTbl, 1, 8,  str.tostring(bbLower, format.mintick), text_color=color.green, text_size=size.small)
+    table.cell(infoTbl, 0, 9,  "BB Position",   text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 9,  bbPos,            text_color=bbPosColor,  text_size=size.small)
+    table.cell(infoTbl, 0, 10, "Signal",        text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 10, signal,           text_color=sigColor,    text_size=size.small)
+    table.cell(infoTbl, 0, 11, "Position",      text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 11, posText,          text_color=posClr,      text_size=size.small)
+    table.cell(infoTbl, 0, 12, "Bars in Trade", text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 12, strategy.position_size != 0 ? str.tostring(barsInTrade) : "-", text_color=color.gray, text_size=size.small)
+    table.cell(infoTbl, 0, 13, "Timeframe",     text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 13, "1H / 4H",       text_color=color.white, text_size=size.small)
