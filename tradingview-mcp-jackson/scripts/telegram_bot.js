@@ -106,8 +106,17 @@ async function handleCommand(cmd) {
       await send('❌ Brief failed:\n`' + result.output.trim().slice(0, 500) + '`');
     }
 
+  } else if (text === '/equities' || text.startsWith('/equities@')) {
+    await send('🏛 Running equities bounce scanner (50 stocks × 2 TFs)...\nThis takes ~8 min.');
+    const result = await runAsync('cd /home/ubuntu/tradingview-mcp-jackson && /usr/bin/node scripts/equities_scanner.js 2>&1', 600000);
+    if (result.output.includes('signals found') || result.output.includes('Bounce Scan Complete')) {
+      console.log('Equities scan done');
+    } else {
+      await send('Equities scan:\n`' + result.output.trim().slice(0, 500) + '`');
+    }
+
   } else if (text === '/scan' || text.startsWith('/scan@')) {
-    await send('🔍 Running multi-strategy scan (4 strategies)...');
+    await send('🔍 Running multi-strategy scan (crypto)...');
     const result = await runAsync('cd /home/ubuntu/tradingview-mcp-jackson && /usr/bin/node scripts/multi_strategy_scan.js 2>&1');
     if (result.output.includes('ALERTS SENT')) {
       console.log('Multi-scan alerts sent');
@@ -119,10 +128,12 @@ async function handleCommand(cmd) {
 
   } else if (text === '/strategies' || text.startsWith('/strategies@')) {
     await send('*📋 Active Strategies*\n\n' +
-      '🏆 *VDP + Tone Vase v3* (Weekly) — PF 1.95 | WR 56%\n   Swing trading, ATR dynamic zones, bear filter\n   Assets: BTC, ETH, SOL, XRP, LINK, PEPE\n\n' +
-      '🏆 *BB + RSI Squeeze v2* (1H) — PF 2.16 | WR 63%\n   Keltner squeeze, band reversion, 2-stage exit\n   Assets: BTC, ETH\n\n' +
-      '📈 *RSI Div + VWAP* (1H) — PF 1.08 | Promising\n   RSI divergence, vol spike, ATR trail\n   Assets: BTC, ETH\n\n' +
-      '📊 *FVG Scalper v2* (15M) — Needs more data\n   Quality-scored FVGs, session filter, nested MTF\n   Assets: BTC, EUR/USD, XAU/USD');
+      '*Crypto (validated, scanning):*\n' +
+      '🏆 *VDP + Tone Vase v3* (Weekly) — PF 1.95 | WR 56%\n   Swing buy dips to EMA zones, bear filter\n   BTC, ETH, SOL, XRP, LINK, PEPE\n\n' +
+      '🏆 *BB + RSI Squeeze v2* (1H) — PF 2.16 | WR 63%\n   Keltner squeeze, band reversion, 2-stage exit\n   BTC, ETH, SOL, XRP\n\n' +
+      '*Equities (backtested, scanning daily):*\n' +
+      '📊 *Bounce Setup* (Daily + 4H) — 1:3 R:R\n   Stoch OS + candle pattern + support\n   50 stocks, top: TSLA, PYPL, MA, DIS, NVDA, META\n\n' +
+      '_Parked: RSI+VWAP, FVG, EMA Inversion, Meta Strategy_');
 
   } else if (text === '/status' || text.startsWith('/status@')) {
     const result = await runAsync('/home/ubuntu/tradingview-mcp-jackson/scripts/tv_health.sh 2>&1', 30000);
@@ -163,8 +174,15 @@ async function handleCommand(cmd) {
       await send('❌ ' + err.message);
     }
 
+  } else if (text === '/signals' || text.startsWith('/signals@')) {
+    await send('📡 Generating signal report...');
+    const result = await runAsync('cd /home/ubuntu/tradingview-mcp-jackson && /usr/bin/node scripts/signal_tracker.js report 2>&1');
+    if (!result.output.includes('Signal Tracker')) {
+      await send('Signal report:\n`' + result.output.trim().slice(0, 500) + '`');
+    }
+
   } else if (text === '/start' || text.startsWith('/start@')) {
-    await send('*TradingView MCP Bot*\n\n/status — Health check\n/brief — Morning brief\n/scan — Multi-strategy scan\n/strategies — List active strategies\n/journal — Trade journal & stats\n/entry — Log trade: `/entry BTCUSD 67000 0.5`\n/exit — Close trade: `/exit T123 72000`');
+    await send('*TradingView MCP Bot*\n\n/status — Health check\n/brief — Morning brief (crypto)\n/scan — Crypto multi-strategy scan\n/equities — Equities bounce scanner (50 stocks)\n/strategies — Active strategies\n/signals — Signal tracker report\n/journal — Trade journal\n/entry — Log trade\n/exit — Close trade');
   }
 }
 

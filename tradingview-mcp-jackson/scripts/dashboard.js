@@ -37,16 +37,21 @@ function getData() {
   } catch {}
 
   const journal = rj(`${HOME}/.tradingview-mcp/journal/trades.json`) || { trades: [] };
+  const signalLog = rj(`${HOME}/.tradingview-mcp/signals/signals.json`) || [];
+  const signalStats = rj(`${HOME}/.tradingview-mcp/signals/stats.json`) || null;
   const multiState = rj(`${P}/.multi_strategy_state.json`) || {};
   const alertState = rj(`${P}/.last_alert_state.json`) || {};
+  const equityScanHistory = rj(`${HOME}/.tradingview-mcp/equity-signals/scan_history.json`) || [];
+  const bounceBacktest = rj(`${P}/strategies/bounce_backtest_results.json`) || null;
 
   const svcs = ['tv-chrome', 'tv-telegram-bot', 'tv-dashboard'].map(s => {
     const r = x(`systemctl is-active ${s} 2>/dev/null`);
     return { name: s, up: r === 'active' };
   });
 
-  return { health, rules, strats, pines, journal, multiState, alertState, svcs,
+  return { health, rules, strats, pines, journal, signalLog, signalStats, multiState, alertState, equityScanHistory, bounceBacktest, svcs,
     briefLog: tail('/tmp/tv-telegram-brief.log'), alertLog: tail('/tmp/tv-telegram-alert.log'),
+    equitiesLog: tail('/tmp/tv-equities-scan.log'),
     scanLog: tail('/tmp/tv-multi-scan.log'), backtestLog: tail('/tmp/backtest-all.log', 25),
     healthy: health.includes('ALL SYSTEMS GO'),
     cron: x('crontab -l 2>/dev/null').split('\n').filter(l => l.includes('tradingview')),
@@ -187,7 +192,7 @@ ${Object.entries(d.multiState).map(([key, val]) => {
 
 <div class="grid">
 
-<!-- STATS ROW -->
+<!-- OVERVIEW STATS -->
 <div class="cell span4" style="padding:0">
   <div class="stat-row">
     <div class="stat"><div class="stat-v">${stratRows.length}</div><div class="stat-l">Strategies</div></div>
@@ -257,35 +262,110 @@ ${Object.entries(d.multiState).map(([key, val]) => {
   </div>
 </div>
 
-<!-- PINE SCRIPTS -->
-<div class="cell">
-  <div class="cell-t">Pine Scripts</div>
-  ${d.pines.map(p => `<div class="sig-row"><span style="color:var(--green)">🌲</span><span style="color:#fff;font-weight:700;flex:1">${e(p.title)}</span><span class="sig-strat">${p.lines}L · ${p.isStrategy ? 'STRAT' : 'IND'}</span></div>`).join('')}
+<!-- SIGNAL TRACKER -->
+<div class="cell span2">
+  <div class="cell-t">Signal Tracker (Forward Testing)</div>
+  ${(() => {
+    const sigs = d.signalLog || [];
+    const stats = d.signalStats;
+    const pending = sigs.filter(s => !s.outcome);
+    const scored = sigs.filter(s => s.outcome && s.outcome !== 'pending');
+    const wins = scored.filter(s => s.outcome === 'win');
+    const losses = scored.filter(s => s.outcome === 'loss');
+
+    let html = '<div class="stat-row" style="margin-bottom:8px">';
+    html += '<div class="stat"><div class="stat-v">' + sigs.length + '</div><div class="stat-l">Total Signals</div></div>';
+    html += '<div class="stat"><div class="stat-v">' + pending.length + '</div><div class="stat-l">Pending</div></div>';
+    html += '<div class="stat"><div class="stat-v stat-g">' + wins.length + '</div><div class="stat-l">Wins</div></div>';
+    html += '<div class="stat"><div class="stat-v stat-r">' + losses.length + '</div><div class="stat-l">Losses</div></div>';
+    html += '</div>';
+
+    if (stats?.by_strategy) {
+      html += '<div style="margin-bottom:8px">';
+      for (const [name, s] of Object.entries(stats.by_strategy)) {
+        html += '<div class="sig-row"><span style="flex:1;font-weight:700">' + e(name) + '</span><span>' + e(s.win_rate) + ' WR</span><span class="muted" style="margin-left:8px">' + s.total + ' signals, avg ' + e(s.avg_pct) + '</span></div>';
+      }
+      html += '</div>';
+    }
+
+    // Recent signals
+    const recent = sigs.slice(-5).reverse();
+    for (const s of recent) {
+      const emoji = s.outcome === 'win' ? '🟢' : s.outcome === 'loss' ? '🔴' : '⏳';
+      const outText = s.outcome ? s.outcome.toUpperCase() + (s.outcome_pct ? ' (' + s.outcome_pct + '%)' : '') : 'PENDING';
+      html += '<div class="sig-row"><span>' + emoji + '</span><span class="sig-sym">' + e(s.symbol) + '</span><span style="flex:1">' + e(s.strategy) + '</span><span style="color:' + (s.outcome === 'win' ? 'var(--green)' : s.outcome === 'loss' ? 'var(--red)' : 'var(--muted)') + '">' + outText + '</span></div>';
+    }
+
+    if (sigs.length === 0) html += '<div class="muted">No signals recorded yet. Signals are logged automatically when the scanner runs.</div>';
+
+    return html;
+  })()}
 </div>
 
-<!-- SERVICES -->
-<div class="cell">
-  <div class="cell-t">Services & Cron</div>
-  ${d.svcs.map(s => `<div class="sig-row"><span class="svc-dot" style="background:${s.up ? 'var(--green)' : 'var(--red)'}"></span><span style="flex:1">${e(s.name)}</span><span style="color:${s.up ? 'var(--green)' : 'var(--red)'}"> ${s.up ? 'UP' : 'DOWN'}</span></div>`).join('')}
-  <div style="margin-top:8px;font-size:10px;color:var(--muted)">${d.cron.map(c => e(c)).join('<br>')}</div>
+<!-- EQUITIES BOUNCE SCANNER -->
+<div class="cell span2">
+  <div class="cell-t">Equities Bounce Scanner (50 Stocks)</div>
+  ${(() => {
+    const scans = d.equityScanHistory || [];
+    const lastScan = scans[scans.length - 1];
+    const bt = d.bounceBacktest;
+    let html = '';
+
+    if (lastScan) {
+      html += '<div style="margin-bottom:8px;font-size:11px;color:var(--muted)">Last scan: ' + e(lastScan.timestamp?.split('T')[0]) + ' | ' + lastScan.tickers_scanned + ' checked | ' + lastScan.signals_found + ' signals</div>';
+      if (lastScan.signals?.length > 0) {
+        for (const s of lastScan.signals) {
+          html += '<div class="sig-row"><span class="sig-sym">' + e(s.ticker) + '</span><span class="sig-val sig-long">' + e(s.signal) + '</span><span class="muted">' + e(s.tf) + ' | $' + s.price + ' | +' + s.plus + '</span></div>';
+        }
+      } else {
+        html += '<div class="muted">No bounce signals in last scan</div>';
+      }
+    } else {
+      html += '<div class="muted">No scans yet. Runs daily at 9:30 PM UTC or /equities</div>';
+    }
+
+    // Top performers from backtest
+    if (bt?.top_performers?.length > 0) {
+      html += '<div style="margin-top:10px"><div class="cell-t" style="padding:4px 0;border:none">Backtest Top Performers</div>';
+      for (const t of bt.top_performers.slice(0, 6)) {
+        html += '<div class="sig-row"><span class="sig-sym">' + e(t.ticker) + '</span><span class="muted">' + e(t.tf) + '</span><span style="color:var(--green)">PF ' + t.pf + '</span><span class="muted">WR ' + t.wr + '% | ' + t.trades + ' trades</span></div>';
+      }
+      html += '</div>';
+    }
+    return html;
+  })()}
+</div>
+
+<!-- SYSTEM -->
+<div class="cell span2">
+  <div class="cell-t">System</div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:4px">SERVICES</div>
+      ${d.svcs.map(s => `<div class="sig-row"><span class="svc-dot" style="background:${s.up ? 'var(--green)' : 'var(--red)'}"></span><span>${e(s.name)}</span></div>`).join('')}
+    </div>
+    <div style="flex:1">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:4px">HEALTH</div>
+      <div style="font-size:11px;line-height:1.5">${(d.health || '').split('\\n').slice(2, -2).map(l => {
+        let c = l.includes('OK') ? 'h-ok' : l.includes('DOWN') || l.includes('FAIL') ? 'h-fail' : l.includes('WARN') ? 'h-warn' : '';
+        return '<div class="' + c + '">' + e(l) + '</div>';
+      }).join('')}</div>
+    </div>
+  </div>
+  <div style="margin-top:8px">
+    <div style="font-size:10px;color:var(--muted);margin-bottom:4px">CRON (${d.cron.length} jobs)</div>
+    <div style="font-size:9px;color:var(--muted);font-family:monospace">${d.cron.map(c => e(c)).join('<br>')}</div>
+  </div>
 </div>
 
 <!-- LOGS -->
-<div class="cell">
-  <div class="cell-t">Brief Log</div>
-  <div class="log">${e(d.briefLog) || 'No briefs yet'}</div>
+<div class="cell span2">
+  <div class="cell-t">Activity Log</div>
+  <div class="log">${e(d.scanLog) || e(d.alertLog) || 'No activity yet'}</div>
 </div>
-<div class="cell">
-  <div class="cell-t">Alert Scan</div>
-  <div class="log">${e(d.alertLog) || 'No scans yet'}</div>
-</div>
-<div class="cell">
-  <div class="cell-t">Multi-Strategy Scan</div>
-  <div class="log">${e(d.scanLog) || 'No multi-scans yet'}</div>
-</div>
-<div class="cell">
-  <div class="cell-t">Backtest Output</div>
-  <div class="log">${e(d.backtestLog) || 'No backtests yet'}</div>
+<div class="cell span2">
+  <div class="cell-t">Equities Scan Log</div>
+  <div class="log">${e(d.equitiesLog) || 'No equities scans yet'}</div>
 </div>
 
 </div>

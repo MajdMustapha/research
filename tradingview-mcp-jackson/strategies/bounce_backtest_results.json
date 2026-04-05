@@ -1,0 +1,1280 @@
+{
+  "tested_on": "2026-04-05T17:06:23.957Z",
+  "tickers": 51,
+  "timeframes": [
+    "Daily",
+    "4H"
+  ],
+  "total_results": 102,
+  "with_trades": 94,
+  "profitable": 40,
+  "strong": 8,
+  "top_performers": [
+    {
+      "ticker": "DIA",
+      "tf": "4H",
+      "pf": 4.913,
+      "wr": 50,
+      "trades": 4
+    },
+    {
+      "ticker": "CRM",
+      "tf": "4H",
+      "pf": 2.494,
+      "wr": 37.5,
+      "trades": 8
+    },
+    {
+      "ticker": "TSLA",
+      "tf": "4H",
+      "pf": 2.152,
+      "wr": 50,
+      "trades": 34
+    },
+    {
+      "ticker": "PYPL",
+      "tf": "4H",
+      "pf": 2.076,
+      "wr": 37.25,
+      "trades": 51
+    },
+    {
+      "ticker": "MA",
+      "tf": "Daily",
+      "pf": 1.958,
+      "wr": 39.53,
+      "trades": 43
+    },
+    {
+      "ticker": "DIS",
+      "tf": "4H",
+      "pf": 1.948,
+      "wr": 33.33,
+      "trades": 63
+    },
+    {
+      "ticker": "META",
+      "tf": "4H",
+      "pf": 1.646,
+      "wr": 34.78,
+      "trades": 46
+    },
+    {
+      "ticker": "NVDA",
+      "tf": "4H",
+      "pf": 1.606,
+      "wr": 35.14,
+      "trades": 74
+    }
+  ],
+  "all_results": [
+    {
+      "ticker": "AAPL",
+      "tf": "Daily",
+      "trades": 138,
+      "wr": 20.29,
+      "pf": 0.503,
+      "metrics": {
+        "Total Trades": "138",
+        "Win Rate": "20.29%",
+        "Profit Factor": "0.503"
+      }
+    },
+    {
+      "ticker": "MSFT",
+      "tf": "Daily",
+      "trades": 134,
+      "wr": 26.12,
+      "pf": 1,
+      "metrics": {
+        "Total Trades": "134",
+        "Win Rate": "26.12%",
+        "Profit Factor": "1"
+      }
+    },
+    {
+      "ticker": "GOOGL",
+      "tf": "Daily",
+      "trades": 71,
+      "wr": 29.58,
+      "pf": 1.258,
+      "metrics": {
+        "Total Trades": "71",
+        "Win Rate": "29.58%",
+        "Profit Factor": "1.258"
+      }
+    },
+    {
+      "ticker": "AMZN",
+      "tf": "Daily",
+      "trades": 89,
+      "wr": 24.72,
+      "pf": 0.832,
+      "metrics": {
+        "Total Trades": "89",
+        "Win Rate": "24.72%",
+        "Profit Factor": "0.832"
+      }
+    },
+    {
+      "ticker": "NVDA",
+      "tf": "Daily",
+      "trades": 73,
+      "wr": 31.51,
+      "pf": 0.884,
+      "metrics": {
+        "Total Trades": "73",
+        "Win Rate": "31.51%",
+        "Profit Factor": "0.884"
+      }
+    },
+    {
+      "ticker": "META",
+      "tf": "Daily",
+      "trades": 26,
+      "wr": 19.23,
+      "pf": 0.888,
+      "metrics": {
+        "Total Trades": "26",
+        "Win Rate": "19.23%",
+        "Profit Factor": "0.888"
+      }
+    },
+    {
+      "ticker": "TSLA",
+      "tf": "Daily",
+      "trades": 37,
+      "wr": 24.32,
+      "pf": 0.781,
+      "metrics": {
+        "Total Trades": "37",
+        "Win Rate": "24.32%",
+        "Profit Factor": "0.781"
+      }
+    },
+    {
+      "ticker": "AMD",
+      "tf": "Daily",
+      "trades": 111,
+      "wr": 34.23,
+      "pf": 1.382,
+      "metrics": {
+        "Total Trades": "111",
+        "Win Rate": "34.23%",
+        "Profit Factor": "1.382"
+      }
+    },
+    {
+      "ticker": "INTC",
+      "tf": "Daily",
+      "trades": 143,
+      "wr": 28.67,
+      "pf": 1.001,
+      "metrics": {
+        "Total Trades": "143",
+        "Win Rate": "28.67%",
+        "Profit Factor": "1.001"
+      }
+    },
+    {
+      "ticker": "AVGO",
+      "tf": "Daily",
+      "trades": 58,
+      "wr": 27.59,
+      "pf": 1.261,
+      "metrics": {
+        "Total Trades": "58",
+        "Win Rate": "27.59%",
+        "Profit Factor": "1.261"
+      }
+    },
+    {
+      "ticker": "QCOM",
+      "tf": "Daily",
+      "trades": 94,
+      "wr": 31.91,
+      "pf": 1.186,
+      "metrics": {
+        "Total Trades": "94",
+        "Win Rate": "31.91%",
+        "Profit Factor": "1.186"
+      }
+    },
+    {
+      "ticker": "MU",
+      "tf": "Daily",
+      "trades": 119,
+      "wr": 26.89,
+      "pf": 1.099,
+      "metrics": {
+        "Total Trades": "119",
+        "Win Rate": "26.89%",
+        "Profit Factor": "1.099"
+      }
+    },
+    {
+      "ticker": "JPM",
+      "tf": "Daily",
+      "trades": 176,
+      "wr": 26.7,
+      "pf": 0.979,
+      "metrics": {
+        "Total Trades": "176",
+        "Win Rate": "26.70%",
+        "Profit Factor": "0.979"
+      }
+    },
+    {
+      "ticker": "BAC",
+      "tf": "Daily",
+      "trades": 160,
+      "wr": 30,
+      "pf": 1.077,
+      "metrics": {
+        "Total Trades": "160",
+        "Win Rate": "30.00%",
+        "Profit Factor": "1.077"
+      }
+    },
+    {
+      "ticker": "GS",
+      "tf": "Daily",
+      "trades": 53,
+      "wr": 26.42,
+      "pf": 1.046,
+      "metrics": {
+        "Total Trades": "53",
+        "Win Rate": "26.42%",
+        "Profit Factor": "1.046"
+      }
+    },
+    {
+      "ticker": "MS",
+      "tf": "Daily",
+      "trades": 101,
+      "wr": 34.65,
+      "pf": 1.078,
+      "metrics": {
+        "Total Trades": "101",
+        "Win Rate": "34.65%",
+        "Profit Factor": "1.078"
+      }
+    },
+    {
+      "ticker": "V",
+      "tf": "Daily",
+      "trades": 47,
+      "wr": 21.28,
+      "pf": 0.675,
+      "metrics": {
+        "Total Trades": "47",
+        "Win Rate": "21.28%",
+        "Profit Factor": "0.675"
+      }
+    },
+    {
+      "ticker": "MA",
+      "tf": "Daily",
+      "trades": 43,
+      "wr": 39.53,
+      "pf": 1.958,
+      "metrics": {
+        "Total Trades": "43",
+        "Win Rate": "39.53%",
+        "Profit Factor": "1.958"
+      }
+    },
+    {
+      "ticker": "UNH",
+      "tf": "Daily",
+      "trades": 102,
+      "wr": 29.41,
+      "pf": 1.187,
+      "metrics": {
+        "Total Trades": "102",
+        "Win Rate": "29.41%",
+        "Profit Factor": "1.187"
+      }
+    },
+    {
+      "ticker": "JNJ",
+      "tf": "Daily",
+      "trades": 209,
+      "wr": 27.27,
+      "pf": 0.934,
+      "metrics": {
+        "Total Trades": "209",
+        "Win Rate": "27.27%",
+        "Profit Factor": "0.934"
+      }
+    },
+    {
+      "ticker": "PFE",
+      "tf": "Daily",
+      "trades": 201,
+      "wr": 28.36,
+      "pf": 1.027,
+      "metrics": {
+        "Total Trades": "201",
+        "Win Rate": "28.36%",
+        "Profit Factor": "1.027"
+      }
+    },
+    {
+      "ticker": "ABBV",
+      "tf": "Daily",
+      "trades": 60,
+      "wr": 21.67,
+      "pf": 0.71,
+      "metrics": {
+        "Total Trades": "60",
+        "Win Rate": "21.67%",
+        "Profit Factor": "0.71"
+      }
+    },
+    {
+      "ticker": "MRK",
+      "tf": "Daily",
+      "trades": 218,
+      "wr": 27.98,
+      "pf": 0.959,
+      "metrics": {
+        "Total Trades": "218",
+        "Win Rate": "27.98%",
+        "Profit Factor": "0.959"
+      }
+    },
+    {
+      "ticker": "LLY",
+      "tf": "Daily",
+      "trades": 201,
+      "wr": 29.35,
+      "pf": 1.141,
+      "metrics": {
+        "Total Trades": "201",
+        "Win Rate": "29.35%",
+        "Profit Factor": "1.141"
+      }
+    },
+    {
+      "ticker": "HD",
+      "tf": "Daily",
+      "trades": 130,
+      "wr": 25.38,
+      "pf": 0.876,
+      "metrics": {
+        "Total Trades": "130",
+        "Win Rate": "25.38%",
+        "Profit Factor": "0.876"
+      }
+    },
+    {
+      "ticker": "WMT",
+      "tf": "Daily",
+      "trades": 178,
+      "wr": 26.97,
+      "pf": 1.219,
+      "metrics": {
+        "Total Trades": "178",
+        "Win Rate": "26.97%",
+        "Profit Factor": "1.219"
+      }
+    },
+    {
+      "ticker": "COST",
+      "tf": "Daily",
+      "trades": 97,
+      "wr": 27.84,
+      "pf": 0.998,
+      "metrics": {
+        "Total Trades": "97",
+        "Win Rate": "27.84%",
+        "Profit Factor": "0.998"
+      }
+    },
+    {
+      "ticker": "PG",
+      "tf": "Daily",
+      "trades": 226,
+      "wr": 25.22,
+      "pf": 0.765,
+      "metrics": {
+        "Total Trades": "226",
+        "Win Rate": "25.22%",
+        "Profit Factor": "0.765"
+      }
+    },
+    {
+      "ticker": "KO",
+      "tf": "Daily",
+      "trades": 260,
+      "wr": 26.54,
+      "pf": 0.844,
+      "metrics": {
+        "Total Trades": "260",
+        "Win Rate": "26.54%",
+        "Profit Factor": "0.844"
+      }
+    },
+    {
+      "ticker": "PEP",
+      "tf": "Daily",
+      "trades": 216,
+      "wr": 26.39,
+      "pf": 0.856,
+      "metrics": {
+        "Total Trades": "216",
+        "Win Rate": "26.39%",
+        "Profit Factor": "0.856"
+      }
+    },
+    {
+      "ticker": "MCD",
+      "tf": "Daily",
+      "trades": 212,
+      "wr": 25.47,
+      "pf": 0.851,
+      "metrics": {
+        "Total Trades": "212",
+        "Win Rate": "25.47%",
+        "Profit Factor": "0.851"
+      }
+    },
+    {
+      "ticker": "XOM",
+      "tf": "Daily",
+      "trades": 200,
+      "wr": 22,
+      "pf": 0.804,
+      "metrics": {
+        "Total Trades": "200",
+        "Win Rate": "22.00%",
+        "Profit Factor": "0.804"
+      }
+    },
+    {
+      "ticker": "CVX",
+      "tf": "Daily",
+      "trades": 216,
+      "wr": 28.7,
+      "pf": 1.018,
+      "metrics": {
+        "Total Trades": "216",
+        "Win Rate": "28.70%",
+        "Profit Factor": "1.018"
+      }
+    },
+    {
+      "ticker": "COP",
+      "tf": "Daily",
+      "trades": 197,
+      "wr": 29.44,
+      "pf": 1.065,
+      "metrics": {
+        "Total Trades": "197",
+        "Win Rate": "29.44%",
+        "Profit Factor": "1.065"
+      }
+    },
+    {
+      "ticker": "CAT",
+      "tf": "Daily",
+      "trades": 210,
+      "wr": 21.43,
+      "pf": 0.798,
+      "metrics": {
+        "Total Trades": "210",
+        "Win Rate": "21.43%",
+        "Profit Factor": "0.798"
+      }
+    },
+    {
+      "ticker": "BA",
+      "tf": "Daily",
+      "trades": 180,
+      "wr": 25.56,
+      "pf": 0.815,
+      "metrics": {
+        "Total Trades": "180",
+        "Win Rate": "25.56%",
+        "Profit Factor": "0.815"
+      }
+    },
+    {
+      "ticker": "GE",
+      "tf": "Daily",
+      "trades": 192,
+      "wr": 27.08,
+      "pf": 0.939,
+      "metrics": {
+        "Total Trades": "192",
+        "Win Rate": "27.08%",
+        "Profit Factor": "0.939"
+      }
+    },
+    {
+      "ticker": "UPS",
+      "tf": "Daily",
+      "trades": 99,
+      "wr": 25.25,
+      "pf": 1.072,
+      "metrics": {
+        "Total Trades": "99",
+        "Win Rate": "25.25%",
+        "Profit Factor": "1.072"
+      }
+    },
+    {
+      "ticker": "HON",
+      "tf": "Daily",
+      "trades": 176,
+      "wr": 23.3,
+      "pf": 0.762,
+      "metrics": {
+        "Total Trades": "176",
+        "Win Rate": "23.30%",
+        "Profit Factor": "0.762"
+      }
+    },
+    {
+      "ticker": "DIS",
+      "tf": "Daily",
+      "trades": 211,
+      "wr": 21.8,
+      "pf": 0.752,
+      "metrics": {
+        "Total Trades": "211",
+        "Win Rate": "21.80%",
+        "Profit Factor": "0.752"
+      }
+    },
+    {
+      "ticker": "NFLX",
+      "tf": "Daily",
+      "trades": 68,
+      "wr": 30.88,
+      "pf": 1.15,
+      "metrics": {
+        "Total Trades": "68",
+        "Win Rate": "30.88%",
+        "Profit Factor": "1.15"
+      }
+    },
+    {
+      "ticker": "CMCSA",
+      "tf": "Daily",
+      "trades": 125,
+      "wr": 28.8,
+      "pf": 1.253,
+      "metrics": {
+        "Total Trades": "125",
+        "Win Rate": "28.80%",
+        "Profit Factor": "1.253"
+      }
+    },
+    {
+      "ticker": "SPY",
+      "tf": "Daily",
+      "trades": 95,
+      "wr": 26.32,
+      "pf": 0.942,
+      "metrics": {
+        "Total Trades": "95",
+        "Win Rate": "26.32%",
+        "Profit Factor": "0.942"
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "tf": "Daily",
+      "trades": 83,
+      "wr": 27.71,
+      "pf": 0.873,
+      "metrics": {
+        "Total Trades": "83",
+        "Win Rate": "27.71%",
+        "Profit Factor": "0.873"
+      }
+    },
+    {
+      "ticker": "IWM",
+      "tf": "Daily",
+      "trades": 102,
+      "wr": 25.49,
+      "pf": 0.906,
+      "metrics": {
+        "Total Trades": "102",
+        "Win Rate": "25.49%",
+        "Profit Factor": "0.906"
+      }
+    },
+    {
+      "ticker": "DIA",
+      "tf": "Daily",
+      "trades": 87,
+      "wr": 31.03,
+      "pf": 1.139,
+      "metrics": {
+        "Total Trades": "87",
+        "Win Rate": "31.03%",
+        "Profit Factor": "1.139"
+      }
+    },
+    {
+      "ticker": "CRM",
+      "tf": "Daily",
+      "trades": 65,
+      "wr": 32.31,
+      "pf": 1.092,
+      "metrics": {
+        "Total Trades": "65",
+        "Win Rate": "32.31%",
+        "Profit Factor": "1.092"
+      }
+    },
+    {
+      "ticker": "ORCL",
+      "tf": "Daily",
+      "trades": 124,
+      "wr": 20.16,
+      "pf": 0.673,
+      "metrics": {
+        "Total Trades": "124",
+        "Win Rate": "20.16%",
+        "Profit Factor": "0.673"
+      }
+    },
+    {
+      "ticker": "ADBE",
+      "tf": "Daily",
+      "trades": 90,
+      "wr": 32.22,
+      "pf": 1.296,
+      "metrics": {
+        "Total Trades": "90",
+        "Win Rate": "32.22%",
+        "Profit Factor": "1.296"
+      }
+    },
+    {
+      "ticker": "NOW",
+      "tf": "Daily",
+      "trades": 55,
+      "wr": 25.45,
+      "pf": 0.935,
+      "metrics": {
+        "Total Trades": "55",
+        "Win Rate": "25.45%",
+        "Profit Factor": "0.935"
+      }
+    },
+    {
+      "ticker": "PYPL",
+      "tf": "Daily",
+      "trades": 33,
+      "wr": 24.24,
+      "pf": 0.922,
+      "metrics": {
+        "Total Trades": "33",
+        "Win Rate": "24.24%",
+        "Profit Factor": "0.922"
+      }
+    },
+    {
+      "ticker": "AAPL",
+      "tf": "4H",
+      "trades": 64,
+      "wr": 21.88,
+      "pf": 0.626,
+      "metrics": {
+        "Total Trades": "64",
+        "Win Rate": "21.88%",
+        "Profit Factor": "0.626"
+      }
+    },
+    {
+      "ticker": "MSFT",
+      "tf": "4H",
+      "trades": 37,
+      "wr": 16.22,
+      "pf": 0.463,
+      "metrics": {
+        "Total Trades": "37",
+        "Win Rate": "16.22%",
+        "Profit Factor": "0.463"
+      }
+    },
+    {
+      "ticker": "GOOGL",
+      "tf": "4H",
+      "trades": 81,
+      "wr": 29.63,
+      "pf": 1.091,
+      "metrics": {
+        "Total Trades": "81",
+        "Win Rate": "29.63%",
+        "Profit Factor": "1.091"
+      }
+    },
+    {
+      "ticker": "AMZN",
+      "tf": "4H",
+      "trades": 86,
+      "wr": 25.58,
+      "pf": 0.734,
+      "metrics": {
+        "Total Trades": "86",
+        "Win Rate": "25.58%",
+        "Profit Factor": "0.734"
+      }
+    },
+    {
+      "ticker": "NVDA",
+      "tf": "4H",
+      "trades": 74,
+      "wr": 35.14,
+      "pf": 1.606,
+      "metrics": {
+        "Total Trades": "74",
+        "Win Rate": "35.14%",
+        "Profit Factor": "1.606"
+      }
+    },
+    {
+      "ticker": "META",
+      "tf": "4H",
+      "trades": 46,
+      "wr": 34.78,
+      "pf": 1.646,
+      "metrics": {
+        "Total Trades": "46",
+        "Win Rate": "34.78%",
+        "Profit Factor": "1.646"
+      }
+    },
+    {
+      "ticker": "TSLA",
+      "tf": "4H",
+      "trades": 34,
+      "wr": 50,
+      "pf": 2.152,
+      "metrics": {
+        "Total Trades": "34",
+        "Win Rate": "50.00%",
+        "Profit Factor": "2.152"
+      }
+    },
+    {
+      "ticker": "AMD",
+      "tf": "4H",
+      "trades": 61,
+      "wr": 22.95,
+      "pf": 0.775,
+      "metrics": {
+        "Total Trades": "61",
+        "Win Rate": "22.95%",
+        "Profit Factor": "0.775"
+      }
+    },
+    {
+      "ticker": "INTC",
+      "tf": "4H",
+      "trades": 90,
+      "wr": 21.11,
+      "pf": 0.846,
+      "metrics": {
+        "Total Trades": "90",
+        "Win Rate": "21.11%",
+        "Profit Factor": "0.846"
+      }
+    },
+    {
+      "ticker": "AVGO",
+      "tf": "4H",
+      "trades": 78,
+      "wr": 30.77,
+      "pf": 1.099,
+      "metrics": {
+        "Total Trades": "78",
+        "Win Rate": "30.77%",
+        "Profit Factor": "1.099"
+      }
+    },
+    {
+      "ticker": "QCOM",
+      "tf": "4H",
+      "trades": 61,
+      "wr": 19.67,
+      "pf": 0.57,
+      "metrics": {
+        "Total Trades": "61",
+        "Win Rate": "19.67%",
+        "Profit Factor": "0.57"
+      }
+    },
+    {
+      "ticker": "MU",
+      "tf": "4H",
+      "trades": 76,
+      "wr": 28.95,
+      "pf": 1.181,
+      "metrics": {
+        "Total Trades": "76",
+        "Win Rate": "28.95%",
+        "Profit Factor": "1.181"
+      }
+    },
+    {
+      "ticker": "JPM",
+      "tf": "4H",
+      "trades": 69,
+      "wr": 26.09,
+      "pf": 1.007,
+      "metrics": {
+        "Total Trades": "69",
+        "Win Rate": "26.09%",
+        "Profit Factor": "1.007"
+      }
+    },
+    {
+      "ticker": "BAC",
+      "tf": "4H",
+      "trades": 93,
+      "wr": 23.66,
+      "pf": 0.76,
+      "metrics": {
+        "Total Trades": "93",
+        "Win Rate": "23.66%",
+        "Profit Factor": "0.76"
+      }
+    },
+    {
+      "ticker": "GS",
+      "tf": "4H",
+      "trades": 2,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "2",
+        "Win Rate": "0.00%",
+        "Profit Factor": "0"
+      }
+    },
+    {
+      "ticker": "MS",
+      "tf": "4H",
+      "trades": 62,
+      "wr": 30.65,
+      "pf": 1.011,
+      "metrics": {
+        "Total Trades": "62",
+        "Win Rate": "30.65%",
+        "Profit Factor": "1.011"
+      }
+    },
+    {
+      "ticker": "V",
+      "tf": "4H",
+      "trades": 17,
+      "wr": 35.29,
+      "pf": 1.489,
+      "metrics": {
+        "Total Trades": "17",
+        "Win Rate": "35.29%",
+        "Profit Factor": "1.489"
+      }
+    },
+    {
+      "ticker": "MA",
+      "tf": "4H",
+      "trades": 0,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "0"
+      }
+    },
+    {
+      "ticker": "UNH",
+      "tf": "4H",
+      "trades": 1,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "1",
+        "Win Rate": "0.00%",
+        "Profit Factor": "0"
+      }
+    },
+    {
+      "ticker": "JNJ",
+      "tf": "4H",
+      "trades": 49,
+      "wr": 24.49,
+      "pf": 0.799,
+      "metrics": {
+        "Total Trades": "49",
+        "Win Rate": "24.49%",
+        "Profit Factor": "0.799"
+      }
+    },
+    {
+      "ticker": "PFE",
+      "tf": "4H",
+      "trades": 79,
+      "wr": 22.78,
+      "pf": 0.683,
+      "metrics": {
+        "Total Trades": "79",
+        "Win Rate": "22.78%",
+        "Profit Factor": "0.683"
+      }
+    },
+    {
+      "ticker": "ABBV",
+      "tf": "4H",
+      "trades": 27,
+      "wr": 18.52,
+      "pf": 0.57,
+      "metrics": {
+        "Total Trades": "27",
+        "Win Rate": "18.52%",
+        "Profit Factor": "0.57"
+      }
+    },
+    {
+      "ticker": "MRK",
+      "tf": "4H",
+      "trades": 63,
+      "wr": 26.98,
+      "pf": 0.914,
+      "metrics": {
+        "Total Trades": "63",
+        "Win Rate": "26.98%",
+        "Profit Factor": "0.914"
+      }
+    },
+    {
+      "ticker": "LLY",
+      "tf": "4H",
+      "trades": 5,
+      "wr": 20,
+      "pf": 0.501,
+      "metrics": {
+        "Total Trades": "5",
+        "Win Rate": "20.00%",
+        "Profit Factor": "0.501"
+      }
+    },
+    {
+      "ticker": "HD",
+      "tf": "4H",
+      "trades": 2,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "2",
+        "Win Rate": "0.00%",
+        "Profit Factor": "0"
+      }
+    },
+    {
+      "ticker": "WMT",
+      "tf": "4H",
+      "trades": 98,
+      "wr": 23.47,
+      "pf": 0.725,
+      "metrics": {
+        "Total Trades": "98",
+        "Win Rate": "23.47%",
+        "Profit Factor": "0.725"
+      }
+    },
+    {
+      "ticker": "COST",
+      "tf": "4H",
+      "trades": 1,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "1",
+        "Win Rate": "0.00%",
+        "Profit Factor": "0"
+      }
+    },
+    {
+      "ticker": "PG",
+      "tf": "4H",
+      "trades": 50,
+      "wr": 30,
+      "pf": 1.114,
+      "metrics": {
+        "Total Trades": "50",
+        "Win Rate": "30.00%",
+        "Profit Factor": "1.114"
+      }
+    },
+    {
+      "ticker": "KO",
+      "tf": "4H",
+      "trades": 0,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "0"
+      }
+    },
+    {
+      "ticker": "PEP",
+      "tf": "4H",
+      "trades": 0,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "0"
+      }
+    },
+    {
+      "ticker": "MCD",
+      "tf": "4H",
+      "trades": 1,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "1",
+        "Win Rate": "0.00%",
+        "Profit Factor": "0"
+      }
+    },
+    {
+      "ticker": "XOM",
+      "tf": "4H",
+      "trades": 0,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "0"
+      }
+    },
+    {
+      "ticker": "CVX",
+      "tf": "4H",
+      "trades": 0,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "0"
+      }
+    },
+    {
+      "ticker": "COP",
+      "tf": "4H",
+      "trades": 37,
+      "wr": 29.73,
+      "pf": 1.417,
+      "metrics": {
+        "Total Trades": "37",
+        "Win Rate": "29.73%",
+        "Profit Factor": "1.417"
+      }
+    },
+    {
+      "ticker": "CAT",
+      "tf": "4H",
+      "trades": 4,
+      "wr": 25,
+      "pf": 0.613,
+      "metrics": {
+        "Total Trades": "4",
+        "Win Rate": "25.00%",
+        "Profit Factor": "0.613"
+      }
+    },
+    {
+      "ticker": "BA",
+      "tf": "4H",
+      "trades": 15,
+      "wr": 20,
+      "pf": 0.836,
+      "metrics": {
+        "Total Trades": "15",
+        "Win Rate": "20.00%",
+        "Profit Factor": "0.836"
+      }
+    },
+    {
+      "ticker": "GE",
+      "tf": "4H",
+      "trades": 42,
+      "wr": 21.43,
+      "pf": 0.618,
+      "metrics": {
+        "Total Trades": "42",
+        "Win Rate": "21.43%",
+        "Profit Factor": "0.618"
+      }
+    },
+    {
+      "ticker": "UPS",
+      "tf": "4H",
+      "trades": 16,
+      "wr": 12.5,
+      "pf": 0.3,
+      "metrics": {
+        "Total Trades": "16",
+        "Win Rate": "12.50%",
+        "Profit Factor": "0.3"
+      }
+    },
+    {
+      "ticker": "HON",
+      "tf": "4H",
+      "trades": 0,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "0"
+      }
+    },
+    {
+      "ticker": "DIS",
+      "tf": "4H",
+      "trades": 63,
+      "wr": 33.33,
+      "pf": 1.948,
+      "metrics": {
+        "Total Trades": "63",
+        "Win Rate": "33.33%",
+        "Profit Factor": "1.948"
+      }
+    },
+    {
+      "ticker": "NFLX",
+      "tf": "4H",
+      "trades": 98,
+      "wr": 26.53,
+      "pf": 0.841,
+      "metrics": {
+        "Total Trades": "98",
+        "Win Rate": "26.53%",
+        "Profit Factor": "0.841"
+      }
+    },
+    {
+      "ticker": "CMCSA",
+      "tf": "4H",
+      "trades": 79,
+      "wr": 31.65,
+      "pf": 1.426,
+      "metrics": {
+        "Total Trades": "79",
+        "Win Rate": "31.65%",
+        "Profit Factor": "1.426"
+      }
+    },
+    {
+      "ticker": "SPY",
+      "tf": "4H",
+      "trades": 0,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "0"
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "tf": "4H",
+      "trades": 39,
+      "wr": 23.08,
+      "pf": 0.737,
+      "metrics": {
+        "Total Trades": "39",
+        "Win Rate": "23.08%",
+        "Profit Factor": "0.737"
+      }
+    },
+    {
+      "ticker": "IWM",
+      "tf": "4H",
+      "trades": 60,
+      "wr": 25,
+      "pf": 0.993,
+      "metrics": {
+        "Total Trades": "60",
+        "Win Rate": "25.00%",
+        "Profit Factor": "0.993"
+      }
+    },
+    {
+      "ticker": "DIA",
+      "tf": "4H",
+      "trades": 4,
+      "wr": 50,
+      "pf": 4.913,
+      "metrics": {
+        "Total Trades": "4",
+        "Win Rate": "50.00%",
+        "Profit Factor": "4.913"
+      }
+    },
+    {
+      "ticker": "CRM",
+      "tf": "4H",
+      "trades": 8,
+      "wr": 37.5,
+      "pf": 2.494,
+      "metrics": {
+        "Total Trades": "8",
+        "Win Rate": "37.50%",
+        "Profit Factor": "2.494"
+      }
+    },
+    {
+      "ticker": "ORCL",
+      "tf": "4H",
+      "trades": 54,
+      "wr": 24.07,
+      "pf": 0.628,
+      "metrics": {
+        "Total Trades": "54",
+        "Win Rate": "24.07%",
+        "Profit Factor": "0.628"
+      }
+    },
+    {
+      "ticker": "ADBE",
+      "tf": "4H",
+      "trades": 0,
+      "wr": 0,
+      "pf": 0,
+      "metrics": {
+        "Total Trades": "0"
+      }
+    },
+    {
+      "ticker": "NOW",
+      "tf": "4H",
+      "trades": 36,
+      "wr": 25,
+      "pf": 1.12,
+      "metrics": {
+        "Total Trades": "36",
+        "Win Rate": "25.00%",
+        "Profit Factor": "1.12"
+      }
+    },
+    {
+      "ticker": "PYPL",
+      "tf": "4H",
+      "trades": 51,
+      "wr": 37.25,
+      "pf": 2.076,
+      "metrics": {
+        "Total Trades": "51",
+        "Win Rate": "37.25%",
+        "Profit Factor": "2.076"
+      }
+    }
+  ]
+}

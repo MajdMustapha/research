@@ -1,0 +1,122 @@
+{
+  "name": "Bounce Setup",
+  "author": "User-defined",
+  "type": "Trend Continuation / Bounce",
+  "timeframe": "D",
+  "market": "Equities + Crypto",
+  "difficulty": "Intermediate",
+  "watchlist": [
+    "BTCUSD",
+    "ETHUSD",
+    "SOLUSD",
+    "XRPUSD",
+    "LINKUSD"
+  ],
+  "concept": "3 mandatory confluences must ALL be present: oversold stochastics + candlestick reversal pattern (with next-day confirmation) + strong support. Plus factors improve conviction but are not required.",
+  "mandatory": {
+    "1_stochastics": "Stoch %K and %D below 30 (oversold)",
+    "2_candlestick_pattern": "One of: Bullish Pin Bar, Bullish Engulfing, Harami, Morning Star, White Soldier. ALL require next-day confirmation candle closing above pattern high.",
+    "3_strong_support": "EMA tested 2+ times, OR Fibonacci 50%/61.8%, OR horizontal support, OR trendline support"
+  },
+  "candlestick_patterns": {
+    "pin_bar": "Long lower wick >= 2x body, small upper wick. Confirmation: next day closes above high",
+    "engulfing": "Prior bearish candle fully engulfed by bullish candle. Confirmation: next day closes above high",
+    "harami": "Small bullish body inside prior large bearish body. Confirmation: next day closes above high",
+    "morning_star": "Large bearish → small star → large bullish closing above midpoint. Confirmation: next day continues",
+    "white_soldier": "Large bullish candle (body > 60% of range) after a bearish candle. Confirmation: next day closes above high"
+  },
+  "plus_factors": {
+    "macd": "MACD (50,100,9) bullish or no bearish cross within 5 bars",
+    "wave_pattern": "EMA 50 > 200 with higher lows",
+    "smooth_retracement": "3+ lower closes before reversal (orderly pullback)",
+    "spy_trend": "SPY above 50 EMA (bullish regime) — equities only",
+    "trendline_support": "Price at rising trendline from prior pivot lows",
+    "horizontal_support": "Price level tested 2+ times historically"
+  },
+  "indicators": {
+    "Stochastics": {
+      "K": 14,
+      "D": 3,
+      "smooth": 3,
+      "oversold": 30
+    },
+    "MACD": {
+      "fast": 50,
+      "slow": 100,
+      "signal": 9
+    },
+    "EMA 50": "Fast trend",
+    "EMA 100": "Mid trend",
+    "EMA 200": "Major support",
+    "Fibonacci": "Auto 50% and 61.8% from swing high/low",
+    "ATR 14": "Stop loss sizing"
+  },
+  "exit_rules": {
+    "stop_loss": "1.5x ATR below entry (1R)",
+    "take_profit": "3R — risk $1 to make $3",
+    "r_r": "1:3"
+  },
+  "scoring": {
+    "mandatory_3": "Must have ALL 3 to enter",
+    "plus_0": "Valid but minimum conviction",
+    "plus_2": "Good setup",
+    "plus_4": "High conviction — consider larger size",
+    "plus_6": "Rare, highest conviction"
+  },
+  "todo": [
+    "Add earnings calendar filter",
+    "Test on weekly for longer-term confirmation",
+    "Add equities watchlist (SPY, QQQ, AAPL, MSFT)"
+  ],
+  "tv_strategy_tester": {
+    "BTC Daily": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "0",
+        "Gross Loss": "0",
+        "Total Trades": "0"
+      },
+      "win_rate": 0,
+      "profit_factor": 0,
+      "total_trades": 0,
+      "net_profit": "unknown"
+    },
+    "ETH Daily": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "89.71",
+        "Gross Loss": "37.68",
+        "Total Trades": "3",
+        "Win Rate": "33.33%",
+        "Profit Factor": "2.381"
+      },
+      "win_rate": 33.33,
+      "profit_factor": 2.381,
+      "total_trades": 3,
+      "net_profit": "unknown"
+    },
+    "SOL Daily": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "233.88",
+        "Gross Loss": "178.17",
+        "Total Trades": "11",
+        "Win Rate": "27.27%",
+        "Profit Factor": "1.313"
+      },
+      "win_rate": 27.27,
+      "profit_factor": 1.313,
+      "total_trades": 11,
+      "net_profit": "unknown"
+    },
+    "_recommendations": [
+      "BTC Daily: Very few trades — try longer timeframe or wider date range for more data",
+      "BTC Daily: NO TRADES generated — strategy conditions too strict or no data for this TF",
+      "ETH Daily: Very few trades — try longer timeframe or wider date range for more data",
+      "ETH Daily: Win rate below 40% — consider tightening entries or widening TP",
+      "ETH Daily: Profit factor above 1.5 — strategy has edge",
+      "ETH Daily: Profit factor above 2 — strong strategy",
+      "SOL Daily: Win rate below 40% — consider tightening entries or widening TP"
+    ]
+  }
+}

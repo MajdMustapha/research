@@ -209,7 +209,32 @@ function analyzeAndRecommend(name, metrics) {
 
 const testPlan = [
   {
-    name: 'RSI + VWAP Mean Reversion',
+    name: 'VDP + Tone Vase v3',
+    pine: 'vdp_tone_vase.pine',
+    stratFile: null,
+    tests: [
+      { symbol: 'BTCUSD', tf: 'W', label: 'BTC Weekly' },
+      { symbol: 'ETHUSD', tf: 'W', label: 'ETH Weekly' },
+      { symbol: 'SOLUSD', tf: 'W', label: 'SOL Weekly' },
+      { symbol: 'XRPUSD', tf: 'W', label: 'XRP Weekly' },
+      { symbol: 'LINKUSD', tf: 'W', label: 'LINK Weekly' },
+    ],
+  },
+  {
+    name: 'BB + RSI Squeeze',
+    pine: 'bb_rsi_meanrev.pine',
+    stratFile: 'bb_rsi_meanrev.json',
+    tests: [
+      { symbol: 'BTCUSD', tf: '60', label: 'BTC 1H' },
+      { symbol: 'ETHUSD', tf: '60', label: 'ETH 1H' },
+      { symbol: 'SOLUSD', tf: '60', label: 'SOL 1H' },
+      { symbol: 'XRPUSD', tf: '60', label: 'XRP 1H' },
+      { symbol: 'EURUSD', tf: '60', label: 'EUR/USD 1H' },
+      { symbol: 'BTCUSD', tf: '240', label: 'BTC 4H' },
+    ],
+  },
+  {
+    name: 'RSI Div + VWAP',
     pine: 'rsi_vwap_meanrev.pine',
     stratFile: 'rsi_vwap_meanrev.json',
     tests: [
@@ -218,20 +243,31 @@ const testPlan = [
     ],
   },
   {
-    name: 'BB + RSI Mean Reversion',
-    pine: 'bb_rsi_meanrev.pine',
-    stratFile: 'bb_rsi_meanrev.json',
-    tests: [
-      { symbol: 'BTCUSD', tf: '60', label: 'BTC 1H' },
-      { symbol: 'BTCUSD', tf: '240', label: 'BTC 4H' },
-    ],
-  },
-  {
     name: 'FVG Scalper',
     pine: 'fvg_scalper.pine',
     stratFile: 'fvg_scalper.json',
     tests: [
       { symbol: 'BTCUSD', tf: '15', label: 'BTC 15M' },
+    ],
+  },
+  {
+    name: 'Bounce Setup',
+    pine: 'bounce_setup.pine',
+    stratFile: 'bounce_setup.json',
+    tests: [
+      { symbol: 'BTCUSD', tf: 'D', label: 'BTC Daily' },
+      { symbol: 'ETHUSD', tf: 'D', label: 'ETH Daily' },
+      { symbol: 'SOLUSD', tf: 'D', label: 'SOL Daily' },
+    ],
+  },
+  {
+    name: 'EMA Zone Inversion',
+    pine: 'ema_zone_inversion.pine',
+    stratFile: 'ema_zone_inversion.json',
+    tests: [
+      { symbol: 'BTCUSD', tf: '60', label: 'BTC 1H' },
+      { symbol: 'ETHUSD', tf: '60', label: 'ETH 1H' },
+      { symbol: 'EURUSD', tf: '60', label: 'EUR/USD 1H' },
     ],
   },
 ];

@@ -1,0 +1,235 @@
+//@version=5
+strategy("EMA Zone Inversion", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=2, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.05, max_boxes_count=300, max_labels_count=300)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  EMA Zone Inversion Strategy                                ║
+// ║  Based on @jtrader concept, @masked_stat open-source impl   ║
+// ║  Rebuilt with our quality filters + ATR exits               ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// === INPUTS ===
+// EMA Stack
+ema1Len    = input.int(33,  "EMA Fast", group="EMA Stack")
+ema2Len    = input.int(50,  "EMA Mid", group="EMA Stack")
+ema3Len    = input.int(200, "EMA Slow", group="EMA Stack")
+
+// FVG
+fvgBars    = input.int(3,   "FVG Candle Count", group="FVG", minval=3, maxval=5)
+fvgMaxAge  = input.int(30,  "Max FVG Age (bars)", group="FVG", minval=5, maxval=100)
+fvgMinSize = input.float(0.05, "Min FVG Size (% of price)", group="FVG") / 100
+
+// Entry
+pivotMode  = input.string("All", "Pivot Count Filter", options=["All", "P1 Only", "P2+"], group="Entry")
+reqZoneBounce = input.bool(true, "Require Zone Bounce", group="Entry")
+
+// Risk
+slMode     = input.string("Pivot", "Stop Loss Mode", options=["Pivot", "Inversion Candle", "ATR"], group="Risk")
+atrLen     = input.int(14,  "ATR Length", group="Risk")
+atrSlMult  = input.float(1.5, "ATR SL Multiplier", group="Risk", minval=0.5, maxval=3.0, step=0.25)
+rrRatio    = input.float(2.0, "Risk:Reward", group="Risk", minval=0.5, maxval=5.0, step=0.25)
+
+// Session
+useSess    = input.bool(false, "Session Filter", group="Session")
+sessStart  = input.int(7,   "Session Start (UTC)", group="Session")
+sessEnd    = input.int(21,  "Session End (UTC)", group="Session")
+
+// === CALCULATIONS ===
+ema33  = ta.ema(close, ema1Len)
+ema50  = ta.ema(close, ema2Len)
+ema200 = ta.ema(close, ema3Len)
+atrVal = ta.atr(atrLen)
+
+// EMA Stack
+bullStack = ema33 > ema50 and ema50 > ema200
+bearStack = ema33 < ema50 and ema50 < ema200
+
+// Session
+utcH = hour(time, "UTC")
+inSession = not useSess or (utcH >= sessStart and utcH < sessEnd)
+
+// === FVG DETECTION ===
+// Bearish FVG (for longs): 3 consecutive bearish candles with gap
+bearishCandle = close < open
+bearFvgSeq = bearishCandle and bearishCandle[1] and bearishCandle[2]
+bearFvgGap = low[0] > high[2]  // gap between candle 1 high and candle 3 low
+bearFvg    = bearFvgSeq and (high[2] < low[0]) and (low[0] - high[2]) / close > fvgMinSize
+
+// Bullish FVG (for shorts): 3 consecutive bullish candles with gap
+bullishCandle = close > open
+bullFvgSeq = bullishCandle and bullishCandle[1] and bullishCandle[2]
+bullFvgGap = high[0] < low[2]
+bullFvg    = bullFvgSeq and (low[2] > high[0]) and (low[2] - high[0]) / close > fvgMinSize
+
+// === TRACK ACTIVE FVGs ===
+var float bearFvgTop = na   // for long setups
+var float bearFvgBot = na
+var int   bearFvgBar = na
+var float bullFvgTop = na   // for short setups
+var float bullFvgBot = na
+var int   bullFvgBar = na
+var int   bearPivots = 0
+var int   bullPivots = 0
+var float bearPivotLow = na
+var float bullPivotHigh = na
+var bool  bearZoneBounce = false
+var bool  bullZoneBounce = false
+var bool  bearEma200Ok = true
+var bool  bullEma200Ok = true
+
+// Record new bearish FVGs
+if bearFvg and bullStack
+    bearFvgTop := low[0]
+    bearFvgBot := high[2]
+    bearFvgBar := bar_index
+    bearPivots := 0
+    bearPivotLow := na
+    bearZoneBounce := false
+    bearEma200Ok := true
+
+// Record new bullish FVGs
+if bullFvg and bearStack
+    bullFvgTop := low[2]
+    bullFvgBot := high[0]
+    bullFvgBar := bar_index
+    bullPivots := 0
+    bullPivotHigh := na
+    bullZoneBounce := false
+    bullEma200Ok := true
+
+// === TRACK PIVOTS & ZONE BOUNCES ===
+// For long setups: count pivot lows between FVG and now
+pivLow  = ta.pivotlow(low, 2, 2)
+pivHigh = ta.pivothigh(high, 2, 2)
+
+if not na(bearFvgBar) and bar_index > bearFvgBar
+    // Count pivots
+    if not na(pivLow)
+        bearPivots += 1
+        bearPivotLow := na(bearPivotLow) ? pivLow : math.min(bearPivotLow, pivLow)
+    // Zone bounce: wick touches EMA 33/50 zone
+    if low <= math.max(ema33, ema50) and low >= math.min(ema33, ema50) and close > ema50
+        bearZoneBounce := true
+    // Also count bounce if wick touches ema33 area
+    if low <= ema33 * 1.002 and low >= ema33 * 0.998 and close > ema50
+        bearZoneBounce := true
+    // EMA200 integrity: every bar must close above 200
+    if close < ema200
+        bearEma200Ok := false
+    // Age out
+    if bar_index - bearFvgBar > fvgMaxAge
+        bearFvgBar := na
+
+if not na(bullFvgBar) and bar_index > bullFvgBar
+    if not na(pivHigh)
+        bullPivots += 1
+        bullPivotHigh := na(bullPivotHigh) ? pivHigh : math.max(bullPivotHigh, pivHigh)
+    if high >= math.min(ema33, ema50) and high <= math.max(ema33, ema50) and close < ema50
+        bullZoneBounce := true
+    if high >= ema33 * 0.998 and high <= ema33 * 1.002 and close < ema50
+        bullZoneBounce := true
+    if close > ema200
+        bullEma200Ok := false
+    if bar_index - bullFvgBar > fvgMaxAge
+        bullFvgBar := na
+
+// === INVERSION SIGNAL ===
+// Long: price closes back ABOVE the bearish FVG top
+longInversion = not na(bearFvgBar) and close > bearFvgTop and bullStack and bearEma200Ok
+// Short: price closes back BELOW the bullish FVG bottom
+shortInversion = not na(bullFvgBar) and close < bullFvgBot and bearStack and bullEma200Ok
+
+// Pivot filter
+pivotOkLong = pivotMode == "All" or (pivotMode == "P1 Only" and bearPivots == 1) or (pivotMode == "P2+" and bearPivots >= 2)
+pivotOkShort = pivotMode == "All" or (pivotMode == "P1 Only" and bullPivots == 1) or (pivotMode == "P2+" and bullPivots >= 2)
+
+// Zone bounce filter
+bounceOkLong  = not reqZoneBounce or bearZoneBounce
+bounceOkShort = not reqZoneBounce or bullZoneBounce
+
+// === ENTRY SIGNALS ===
+longSignal  = longInversion and pivotOkLong and bounceOkLong and inSession and strategy.position_size == 0
+shortSignal = shortInversion and pivotOkShort and bounceOkShort and inSession and strategy.position_size == 0
+
+// === POSITION MANAGEMENT ===
+var float entryPrice = na
+var float stopLoss   = na
+var float takeProfit = na
+
+if longSignal
+    entryPrice := close
+    stopLoss := slMode == "ATR" ? close - atrVal * atrSlMult : slMode == "Pivot" and not na(bearPivotLow) ? bearPivotLow - atrVal * 0.25 : close - atrVal * atrSlMult
+    takeProfit := close + math.abs(close - stopLoss) * rrRatio
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long TP/SL", "Long", limit=takeProfit, stop=stopLoss)
+    // Consume the FVG
+    bearFvgBar := na
+
+if shortSignal
+    entryPrice := close
+    stopLoss := slMode == "ATR" ? close + atrVal * atrSlMult : slMode == "Pivot" and not na(bullPivotHigh) ? bullPivotHigh + atrVal * 0.25 : close + atrVal * atrSlMult
+    takeProfit := close - math.abs(stopLoss - close) * rrRatio
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short TP/SL", "Short", limit=takeProfit, stop=stopLoss)
+    bullFvgBar := na
+
+// === PLOTS ===
+plot(ema33,  "EMA 33",  color=color.new(#00BCD4, 0), linewidth=1)
+plot(ema50,  "EMA 50",  color=color.new(#FF9800, 0), linewidth=1)
+plot(ema200, "EMA 200", color=color.new(#E91E63, 0), linewidth=2)
+
+// EMA zone fill
+p1 = plot(ema33, display=display.none)
+p2 = plot(ema50, display=display.none)
+fill(p1, p2, color=bullStack ? color.new(#00BCD4, 85) : bearStack ? color.new(#FF5722, 85) : color.new(color.gray, 92), title="EMA Zone")
+
+// Signal markers
+plotshape(longSignal, "Long", shape.triangleup, location.belowbar, #00E676, size=size.small, text="INV")
+plotshape(shortSignal, "Short", shape.triangledown, location.abovebar, #FF1744, size=size.small, text="INV")
+
+// FVG boxes
+var box lastBearBox = na
+var box lastBullBox = na
+if bearFvg and bullStack
+    lastBearBox := box.new(bar_index - 2, bearFvgTop, bar_index + 10, bearFvgBot, border_color=color.new(#00BCD4, 30), bgcolor=color.new(#00BCD4, 90))
+if bullFvg and bearStack
+    lastBullBox := box.new(bar_index - 2, bullFvgTop, bar_index + 10, bullFvgBot, border_color=color.new(#FF5722, 30), bgcolor=color.new(#FF5722, 90))
+
+// Background for stack
+bgcolor(bullStack ? color.new(#00E676, 97) : bearStack ? color.new(#FF1744, 97) : na, title="Stack BG")
+
+// === HIDDEN PLOTS for MCP ===
+plot(bullStack ? 1 : bearStack ? -1 : 0, "EMA Stack", display=display.status_line, color=color.new(color.purple, 100))
+plot(longInversion ? 1 : shortInversion ? -1 : 0, "Inversion Signal", display=display.status_line, color=color.new(color.purple, 100))
+plot(bearPivots, "Bear Pivots", display=display.status_line, color=color.new(color.purple, 100))
+plot(atrVal, "ATR", display=display.status_line, color=color.new(color.purple, 100))
+
+// === INFO TABLE ===
+var table tbl = table.new(position.top_right, 2, 10, bgcolor=color.new(color.black, 15), border_width=1)
+
+if barstate.islast
+    stackText = bullStack ? "BULL ✓" : bearStack ? "BEAR ✓" : "NO STACK"
+    stackCol  = bullStack ? color.green : bearStack ? color.red : color.gray
+
+    table.cell(tbl, 0, 0, "EMA INVERSION", text_color=#FFD700, text_size=size.small)
+    table.cell(tbl, 1, 0, "STRATEGY", text_color=#FFD700, text_size=size.small)
+    table.cell(tbl, 0, 1, "EMA Stack", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 1, stackText, text_color=stackCol, text_size=size.small)
+    table.cell(tbl, 0, 2, "EMA 33", text_color=#00BCD4, text_size=size.small)
+    table.cell(tbl, 1, 2, str.tostring(ema33, format.mintick), text_color=#00BCD4, text_size=size.small)
+    table.cell(tbl, 0, 3, "EMA 50", text_color=#FF9800, text_size=size.small)
+    table.cell(tbl, 1, 3, str.tostring(ema50, format.mintick), text_color=#FF9800, text_size=size.small)
+    table.cell(tbl, 0, 4, "EMA 200", text_color=#E91E63, text_size=size.small)
+    table.cell(tbl, 1, 4, str.tostring(ema200, format.mintick), text_color=#E91E63, text_size=size.small)
+    table.cell(tbl, 0, 5, "Bear FVG", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 5, not na(bearFvgBar) ? "Active (P:" + str.tostring(bearPivots) + ")" : "None", text_color=not na(bearFvgBar) ? #00BCD4 : color.gray, text_size=size.small)
+    table.cell(tbl, 0, 6, "Bull FVG", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 6, not na(bullFvgBar) ? "Active (P:" + str.tostring(bullPivots) + ")" : "None", text_color=not na(bullFvgBar) ? #FF5722 : color.gray, text_size=size.small)
+    table.cell(tbl, 0, 7, "Zone Bounce", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 7, bearZoneBounce ? "LONG ✓" : bullZoneBounce ? "SHORT ✓" : "—", text_color=bearZoneBounce or bullZoneBounce ? color.green : color.gray, text_size=size.small)
+    table.cell(tbl, 0, 8, "ATR", text_color=color.gray, text_size=size.small)
+    table.cell(tbl, 1, 8, str.tostring(atrVal, format.mintick), text_color=color.gray, text_size=size.small)
+
+    sigText = longSignal ? ">>> LONG INV <<<" : shortSignal ? ">>> SHORT INV <<<" : "NO SIGNAL"
+    sigCol  = longSignal ? color.green : shortSignal ? color.red : #333333
+    table.cell(tbl, 0, 9, "SIGNAL", text_color=color.white, text_size=size.small)
+    table.cell(tbl, 1, 9, sigText, text_color=sigCol, text_size=size.small)

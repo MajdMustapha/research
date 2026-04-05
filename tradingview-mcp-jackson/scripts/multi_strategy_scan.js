@@ -185,13 +185,44 @@ function analyzeFVG(data) {
   return null;
 }
 
+function analyzeBounce(data) {
+  const study = data.indicators?.studies?.find(s => s.name?.includes('Bounce'));
+  if (!study) return null;
+
+  const longScore = parseNumber(study.values?.['Long Score']);
+  const shortScore = parseNumber(study.values?.['Short Score']);
+  const stochK = parseNumber(study.values?.['Stoch %K']);
+
+  if (longScore >= 3) {
+    return { signal: `BOUNCE LONG (${longScore}/5)`, direction: 'long', details: `Score: ${longScore}/5 | Stoch: ${stochK?.toFixed(0) || '?'}` };
+  }
+  if (shortScore >= 3) {
+    return { signal: `BOUNCE SHORT (${shortScore}/5)`, direction: 'short', details: `Score: ${shortScore}/5 | Stoch: ${stochK?.toFixed(0) || '?'}` };
+  }
+  return null;
+}
+
+function analyzeEMAInv(data) {
+  const study = data.indicators?.studies?.find(s => s.name?.includes('EMA') && s.name?.includes('Inversion'));
+  if (!study) return null;
+
+  const stack = parseNumber(study.values?.['EMA Stack']);
+  const invSignal = parseNumber(study.values?.['Inversion Signal']);
+
+  if (invSignal === 1 && stack === 1) {
+    return { signal: 'EMA INVERSION LONG', direction: 'long', details: 'Bullish stack + FVG inversion' };
+  }
+  if (invSignal === -1 && stack === -1) {
+    return { signal: 'EMA INVERSION SHORT', direction: 'short', details: 'Bearish stack + FVG inversion' };
+  }
+  return null;
+}
+
 // ============ MAIN ============
 
 const strategies = [
   { name: 'VDP + Tone Vase', timeframe: 'W', analyzer: analyzeVDP, watchlist: ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'LINKUSD', 'PEPEUSDT'] },
-  { name: 'BB + RSI Squeeze', timeframe: '60', analyzer: analyzeBBRSI, watchlist: ['BTCUSD', 'ETHUSD'] },
-  { name: 'RSI Div + VWAP', timeframe: '60', analyzer: analyzeRSIVWAP, watchlist: ['BTCUSD', 'ETHUSD'] },
-  { name: 'FVG Scalper', timeframe: '15', analyzer: analyzeFVG, watchlist: ['BTCUSD', 'EURUSD', 'XAUUSD'] },
+  { name: 'BB + RSI Squeeze', timeframe: '60', analyzer: analyzeBBRSI, watchlist: ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'] },
 ];
 
 // Load previous state
@@ -244,3 +275,15 @@ if (alerts.length > 0) {
 } else {
   console.log('No new signals. Silent.');
 }
+
+// Record all signals (including existing ones) for tracking
+try {
+  const { execSync } = await import('child_process');
+  execSync('cd /home/ubuntu/tradingview-mcp-jackson && /usr/bin/node scripts/signal_tracker.js record 2>/dev/null', { timeout: 30000 });
+} catch {}
+
+// Evaluate past signals
+try {
+  const { execSync } = await import('child_process');
+  execSync('cd /home/ubuntu/tradingview-mcp-jackson && /usr/bin/node scripts/signal_tracker.js evaluate 2>/dev/null', { timeout: 60000 });
+} catch {}

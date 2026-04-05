@@ -1,0 +1,133 @@
+{
+  "name": "EMA Zone Inversion",
+  "author": "@jtrader (concept), @masked_stat (open-source impl)",
+  "source": "TradingView open-source scripts, X post Apr 2026",
+  "type": "FVG Inversion / Trend Continuation",
+  "timeframe": "60",
+  "alt_timeframes": [
+    "5",
+    "15"
+  ],
+  "reported_stats": {
+    "baseline": {
+      "trades": 1652,
+      "win_rate": "51%",
+      "profit_factor": 1.06,
+      "instrument": "NQ 1-min",
+      "note": "Raw, no filtering"
+    },
+    "ml_filtered": {
+      "win_rate": "~72%",
+      "filter": "A/A+ setups only via ML grading model",
+      "training": "2020-2024",
+      "forward_test": "2025+",
+      "note": "Works very well on trending markets. @masked_stat validated independently."
+    }
+  },
+  "watchlist": [
+    "BTCUSD",
+    "ETHUSD",
+    "EURUSD"
+  ],
+  "concept": "Price creates a Fair Value Gap (3 consecutive same-direction candles), then inverts back through that gap while EMAs (33/50/200) remain stacked in trend direction. The zone bounce (wick into EMA 33/50 zone) between FVG and inversion confirms smart money defending the level.",
+  "indicators": {
+    "EMA 33": "Fast trend",
+    "EMA 50": "Mid trend — zone between 33/50 is the key area",
+    "EMA 200": "Slow trend — integrity check (all bars must close correct side)"
+  },
+  "entry_rules": {
+    "long": [
+      "EMA stack: 33 > 50 > 200 (bullish)",
+      "Bearish FVG forms (3 bearish candles with gap)",
+      "Price holds above EMA 200 on every bar (integrity)",
+      "Zone bounce: wick touches EMA 33/50 zone",
+      "Inversion: price closes back above FVG top",
+      "FVG consumed after first use"
+    ],
+    "short": [
+      "EMA stack: 33 < 50 < 200 (bearish)",
+      "Bullish FVG forms (3 bullish candles with gap)",
+      "Price holds below EMA 200 on every bar",
+      "Zone bounce: wick touches EMA 33/50 zone",
+      "Inversion: price closes below FVG bottom"
+    ]
+  },
+  "exit_rules": {
+    "stop_loss": "Below pivot low (longs) or ATR-based. Configurable.",
+    "take_profit": "R:R ratio (default 2:1)",
+    "invalidation": "EMA stack breaks"
+  },
+  "quality_filters": {
+    "P1_single_pivot": "Highest quality — only 1 pivot between FVG and inversion",
+    "P2_plus": "Multiple pivots — lower quality, wider stop needed",
+    "zone_bounce": "Wick must touch EMA 33/50 zone (smart money defense)",
+    "ema200_integrity": "Every bar between FVG and inversion closes correct side of 200 EMA"
+  },
+  "risk_rules": [
+    "FVG max age 30 bars — stale gaps lose meaning",
+    "One FVG consumed per inversion (no reuse)",
+    "P:1 setups are highest conviction",
+    "Best on liquid instruments during active sessions"
+  ],
+  "assessment": {
+    "verdict": "Legitimate edge, thin at PF 1.06 baseline. Quality filters (P:1, zone bounce) likely improve it significantly. Worth forward testing alongside BB+RSI.",
+    "strengths": [
+      "1,652 trade sample = statistically significant",
+      "Open source = verifiable",
+      "Sound ICT/SMC logic",
+      "Multiple quality filters available"
+    ],
+    "weaknesses": [
+      "PF 1.06 barely covers execution costs",
+      "51% WR = sensitive to slippage",
+      "Tested on NQ 1-min (noisy)"
+    ],
+    "potential": "High — with P:1 filter and session timing, could reach PF 1.3+"
+  },
+  "tv_strategy_tester": {
+    "BTC 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "0",
+        "Gross Loss": "0",
+        "Total Trades": "0"
+      },
+      "win_rate": 0,
+      "profit_factor": 0,
+      "total_trades": 0,
+      "net_profit": "unknown"
+    },
+    "ETH 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "0",
+        "Gross Loss": "0",
+        "Total Trades": "0"
+      },
+      "win_rate": 0,
+      "profit_factor": 0,
+      "total_trades": 0,
+      "net_profit": "unknown"
+    },
+    "EUR/USD 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "0",
+        "Gross Loss": "0",
+        "Total Trades": "0"
+      },
+      "win_rate": 0,
+      "profit_factor": 0,
+      "total_trades": 0,
+      "net_profit": "unknown"
+    },
+    "_recommendations": [
+      "BTC 1H: Very few trades — try longer timeframe or wider date range for more data",
+      "BTC 1H: NO TRADES generated — strategy conditions too strict or no data for this TF",
+      "ETH 1H: Very few trades — try longer timeframe or wider date range for more data",
+      "ETH 1H: NO TRADES generated — strategy conditions too strict or no data for this TF",
+      "EUR/USD 1H: Very few trades — try longer timeframe or wider date range for more data",
+      "EUR/USD 1H: NO TRADES generated — strategy conditions too strict or no data for this TF"
+    ]
+  }
+}

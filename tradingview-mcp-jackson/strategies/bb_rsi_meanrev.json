@@ -114,6 +114,62 @@
       "total_trades": 51,
       "net_profit": "unknown"
     },
+    "ETH 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "134.32",
+        "Gross Loss": "150.35",
+        "Total Trades": "56",
+        "Win Rate": "46.43%",
+        "Profit Factor": "0.893"
+      },
+      "win_rate": 46.43,
+      "profit_factor": 0.893,
+      "total_trades": 56,
+      "net_profit": "unknown"
+    },
+    "SOL 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "160.93",
+        "Gross Loss": "153.11",
+        "Total Trades": "40",
+        "Win Rate": "55.00%",
+        "Profit Factor": "1.051"
+      },
+      "win_rate": 55,
+      "profit_factor": 1.051,
+      "total_trades": 40,
+      "net_profit": "unknown"
+    },
+    "XRP 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "163.01",
+        "Gross Loss": "142.30",
+        "Total Trades": "47",
+        "Win Rate": "46.81%",
+        "Profit Factor": "1.146"
+      },
+      "win_rate": 46.81,
+      "profit_factor": 1.146,
+      "total_trades": 47,
+      "net_profit": "unknown"
+    },
+    "EUR/USD 1H": {
+      "tested_on": "2026-04-05",
+      "metrics": {
+        "Gross Profit": "8.99",
+        "Gross Loss": "19.97",
+        "Total Trades": "41",
+        "Win Rate": "34.15%",
+        "Profit Factor": "0.45"
+      },
+      "win_rate": 34.15,
+      "profit_factor": 0.45,
+      "total_trades": 41,
+      "net_profit": "unknown"
+    },
     "BTC 4H": {
       "tested_on": "2026-04-05",
       "metrics": {
@@ -131,7 +187,10 @@
     "_recommendations": [
       "BTC 1H: Win rate above 60% — solid foundation",
       "BTC 1H: Profit factor above 1.5 — strategy has edge",
-      "BTC 1H: Profit factor above 2 — strong strategy"
+      "BTC 1H: Profit factor above 2 — strong strategy",
+      "ETH 1H: Profit factor below 1 — strategy loses money. Review exit logic",
+      "EUR/USD 1H: Win rate below 40% — consider tightening entries or widening TP",
+      "EUR/USD 1H: Profit factor below 1 — strategy loses money. Review exit logic"
     ]
   }
 }
